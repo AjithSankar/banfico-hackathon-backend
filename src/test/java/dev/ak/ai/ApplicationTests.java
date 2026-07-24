@@ -1,10 +1,10 @@
-package dev.ak.banficohackathonbackend;
+package dev.ak.ai;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class BanficoHackathonBackendApplicationTests {
+class ApplicationTests {
 
     @Test
     void contextLoads() {

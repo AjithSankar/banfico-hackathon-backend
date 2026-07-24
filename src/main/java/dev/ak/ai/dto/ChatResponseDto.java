@@ -1,7 +1,4 @@
-package dev.ak.nexusficore.dto;
+package dev.ak.ai.dto;
 
-public record ChatResponseDto(String reply,
-                       boolean workflowChanged,
-                       boolean subscriptionsChanged,
-                       boolean autopilotChanged) {
+public record ChatResponseDto(String reply) {
 }

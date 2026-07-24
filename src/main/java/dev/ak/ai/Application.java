@@ -1,13 +1,13 @@
-package dev.ak.banficohackathonbackend;
+package dev.ak.ai;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class BanficoHackathonBackendApplication {
+public class Application {
 
     public static void main(String[] args) {
-        SpringApplication.run(BanficoHackathonBackendApplication.class, args);
+        SpringApplication.run(Application.class, args);
     }
 
 }

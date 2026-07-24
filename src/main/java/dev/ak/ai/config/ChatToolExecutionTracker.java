@@ -1,4 +1,4 @@
-package dev.ak.nexusficore.config;
+package dev.ak.ai.config;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
