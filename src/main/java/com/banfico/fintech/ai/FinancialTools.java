@@ -4,9 +4,13 @@ import com.banfico.fintech.account.AccountService;
 import com.banfico.fintech.account.AccountSummary;
 import com.banfico.fintech.common.Masking;
 import com.banfico.fintech.insights.AnomalyTransaction;
+import com.banfico.fintech.insights.CategoryBreakdownResponse;
 import com.banfico.fintech.insights.HealthSummary;
 import com.banfico.fintech.insights.InsightsService;
+import com.banfico.fintech.insights.OverspendingAlert;
 import com.banfico.fintech.insights.SpendingSummary;
+import com.banfico.fintech.insights.SubscriptionCandidate;
+import com.banfico.fintech.insights.TrendResponse;
 import com.banfico.fintech.transaction.TransactionSummary;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
@@ -71,6 +75,50 @@ public class FinancialTools {
         String sessionId = sessionId(toolContext);
         log.debug("Tool getAnomalies sessionId={}", Masking.truncate(sessionId));
         return insightsService.anomalies(sessionId);
+    }
+
+    @Tool(description = "Get spending broken down by category for a given month, with each category's share of the month's total; defaults to the current month")
+    public CategoryBreakdownResponse getCategoryBreakdown(
+            @ToolParam(required = false, description = "Month in YYYY-MM format; omit for the current month") String month,
+            ToolContext toolContext) {
+        String sessionId = sessionId(toolContext);
+        YearMonth parsedMonth = (month == null || month.isBlank()) ? YearMonth.now() : YearMonth.parse(month);
+        log.debug("Tool getCategoryBreakdown sessionId={} month={}", Masking.truncate(sessionId), parsedMonth);
+        return insightsService.categoryBreakdown(sessionId, parsedMonth);
+    }
+
+    @Tool(description = "Get month-by-month income, expense, and net change over a recent window (e.g. the last 6 months) to see spending/income trajectory over time")
+    public TrendResponse getSpendingTrend(
+            @ToolParam(required = false, description = "Number of months to look back, including the current month; defaults to 6") Integer months,
+            ToolContext toolContext) {
+        String sessionId = sessionId(toolContext);
+        int resolvedMonths = months == null ? 6 : months;
+        log.debug("Tool getSpendingTrend sessionId={} months={}", Masking.truncate(sessionId), resolvedMonths);
+        return insightsService.trend(sessionId, resolvedMonths);
+    }
+
+    @Tool(description = "Get recurring subscription-like charges detected from transaction history: same merchant, similar amount, roughly monthly")
+    public List<SubscriptionCandidate> getSubscriptions(ToolContext toolContext) {
+        String sessionId = sessionId(toolContext);
+        log.debug("Tool getSubscriptions sessionId={}", Masking.truncate(sessionId));
+        return insightsService.subscriptions(sessionId);
+    }
+
+    @Tool(description = "Get categories where spending increased sharply (20%+ or 50%+) vs. the previous month, or brand-new spending categories — the main signal for \"am I overspending\" questions")
+    public List<OverspendingAlert> getOverspendingAlerts(
+            @ToolParam(required = false, description = "Month in YYYY-MM format to check against the prior month; omit for the current month") String month,
+            ToolContext toolContext) {
+        String sessionId = sessionId(toolContext);
+        YearMonth parsedMonth = (month == null || month.isBlank()) ? YearMonth.now() : YearMonth.parse(month);
+        log.debug("Tool getOverspendingAlerts sessionId={} month={}", Masking.truncate(sessionId), parsedMonth);
+        return insightsService.overspendingAlerts(sessionId, parsedMonth);
+    }
+
+    @Tool(description = "Get an overall financial health snapshot: total balance, this month's income/expense/net, savings rate, top spending category, and plain-language observations")
+    public HealthSummary getHealthSummary(ToolContext toolContext) {
+        String sessionId = sessionId(toolContext);
+        log.debug("Tool getHealthSummary sessionId={}", Masking.truncate(sessionId));
+        return insightsService.healthSummary(sessionId);
     }
 
     @Tool(description = "Get personalized financial recommendations (budgeting, savings, spending alerts) based on the user's financial health")

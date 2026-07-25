@@ -118,6 +118,52 @@ public class InsightsService {
                 .toList();
     }
 
+    public List<OverspendingAlert> overspendingAlerts(String sessionId, YearMonth month) {
+        return overspendingAlerts(sessionId, month, null);
+    }
+
+    /**
+     * Compares each category's spend in {@code month} against the prior month, flagging
+     * increases of >=20% ("medium") or >=50% ("high"), plus brand-new categories with no prior
+     * spend at all. A month-over-month lens on overspending, complementing the per-transaction
+     * {@link #anomalies} (which flags outliers vs. a category's own historical mean/stddev).
+     *
+     * @param accountId optional — scope to one account's transactions instead of all accounts.
+     */
+    public List<OverspendingAlert> overspendingAlerts(String sessionId, YearMonth month, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
+        Map<String, BigDecimal> currentByCategory = sumByCategory(filterByMonth(all, month));
+        Map<String, BigDecimal> previousByCategory = sumByCategory(filterByMonth(all, month.minusMonths(1)));
+
+        List<OverspendingAlert> alerts = new ArrayList<>();
+        for (Map.Entry<String, BigDecimal> entry : currentByCategory.entrySet()) {
+            String category = entry.getKey();
+            BigDecimal current = entry.getValue();
+            BigDecimal previous = previousByCategory.getOrDefault(category, BigDecimal.ZERO);
+
+            if (previous.signum() == 0) {
+                if (current.signum() > 0) {
+                    alerts.add(new OverspendingAlert(category, current, previous, null, "medium"));
+                }
+                continue;
+            }
+            BigDecimal percentageIncrease = current.subtract(previous)
+                    .divide(previous, 4, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(100))
+                    .setScale(2, RoundingMode.HALF_UP);
+            if (percentageIncrease.compareTo(BigDecimal.valueOf(50)) >= 0) {
+                alerts.add(new OverspendingAlert(category, current, previous, percentageIncrease, "high"));
+            } else if (percentageIncrease.compareTo(BigDecimal.valueOf(20)) >= 0) {
+                alerts.add(new OverspendingAlert(category, current, previous, percentageIncrease, "medium"));
+            }
+        }
+        return alerts.stream()
+                .sorted(Comparator.comparing((OverspendingAlert a) -> a.percentageIncrease() == null
+                        ? BigDecimal.valueOf(Long.MAX_VALUE)
+                        : a.percentageIncrease()).reversed())
+                .toList();
+    }
+
     public HealthSummary healthSummary(String sessionId) {
         return healthSummary(sessionId, null);
     }
@@ -343,6 +389,11 @@ public class InsightsService {
                 .filter(t -> indicator.equalsIgnoreCase(t.creditDebitIndicator()))
                 .map(TransactionSummary::amount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Map<String, BigDecimal> sumByCategory(List<TransactionSummary> transactions) {
+        return transactions.stream().collect(Collectors.groupingBy(TransactionSummary::category,
+                Collectors.reducing(BigDecimal.ZERO, TransactionSummary::amount, BigDecimal::add)));
     }
 
     private String resolveCurrency(List<TransactionSummary> transactions) {

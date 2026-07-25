@@ -55,4 +55,11 @@ public class InsightsController {
     public ApiResponse<List<SubscriptionCandidate>> subscriptions(@RequestParam(required = false) String accountId) {
         return ApiResponse.ok(insightsService.subscriptions(CurrentSession.sessionId(), accountId));
     }
+
+    @GetMapping("/overspending-alerts")
+    public ApiResponse<List<OverspendingAlert>> overspendingAlerts(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM") YearMonth month,
+            @RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.overspendingAlerts(CurrentSession.sessionId(), month == null ? YearMonth.now() : month, accountId));
+    }
 }
