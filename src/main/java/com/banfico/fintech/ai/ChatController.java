@@ -29,4 +29,9 @@ public class ChatController {
     public ApiResponse<CoachingTipsResponse> coachingTip() {
         return ApiResponse.ok(assistantService.coachingTip(CurrentSession.sessionId()));
     }
+
+    @GetMapping("/recommendations")
+    public ApiResponse<RecommendationsResponse> recommendations() {
+        return ApiResponse.ok(assistantService.recommendations(CurrentSession.sessionId()));
+    }
 }

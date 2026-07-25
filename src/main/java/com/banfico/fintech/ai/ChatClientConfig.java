@@ -1,7 +1,6 @@
 package com.banfico.fintech.ai;
 
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
@@ -13,6 +12,13 @@ import org.springframework.context.annotation.Configuration;
  * Wires the Spring AI ChatClient against the auto-configured Ollama ChatModel (see Phase 0:
  * local Ollama, no API key). Conversation memory is in-memory only, windowed to the last 20
  * messages per conversationId — no persistence, cleared on app restart.
+ *
+ * <p>The MessageChatMemoryAdvisor is deliberately NOT registered as a default advisor here — it
+ * requires a conversationId on every call it wraps, but coachingTip()/recommendations() in
+ * FinancialAssistantService are single-shot stateless prompts with no conversation to attach to.
+ * Registering it as a default previously broke both of those with
+ * "IllegalArgumentException: conversationId cannot be null". FinancialAssistantService.chat()
+ * adds the memory advisor per-call instead, where a conversationId genuinely exists.
  */
 @Configuration
 public class ChatClientConfig {
@@ -35,10 +41,9 @@ public class ChatClientConfig {
     }
 
     @Bean
-    public ChatClient chatClient(ChatModel chatModel, ChatMemory chatMemory) {
+    public ChatClient chatClient(ChatModel chatModel) {
         return ChatClient.builder(chatModel)
                 .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .build();
     }
 }

@@ -4,6 +4,7 @@ import com.banfico.fintech.account.AccountService;
 import com.banfico.fintech.account.AccountSummary;
 import com.banfico.fintech.common.Masking;
 import com.banfico.fintech.insights.AnomalyTransaction;
+import com.banfico.fintech.insights.HealthSummary;
 import com.banfico.fintech.insights.InsightsService;
 import com.banfico.fintech.insights.SpendingSummary;
 import com.banfico.fintech.transaction.TransactionSummary;
@@ -14,6 +15,7 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -69,6 +71,29 @@ public class FinancialTools {
         String sessionId = sessionId(toolContext);
         log.debug("Tool getAnomalies sessionId={}", Masking.truncate(sessionId));
         return insightsService.anomalies(sessionId);
+    }
+
+    @Tool(description = "Get personalized financial recommendations (budgeting, savings, spending alerts) based on the user's financial health")
+    public List<Recommendation> getPersonalizedRecommendations(ToolContext toolContext) {
+        String sessionId = sessionId(toolContext);
+        log.debug("Tool getPersonalizedRecommendations sessionId={}", Masking.truncate(sessionId));
+        return buildRuleBasedRecommendations(sessionId);
+    }
+
+    /**
+     * Deterministic, non-AI recommendation builder — shared by the getPersonalizedRecommendations
+     * tool above (so the conversational /api/ai/chat flow can call it directly) and by
+     * FinancialAssistantService.recommendations()'s fallback when the model call fails. A @Tool
+     * method calling back into the ChatClient itself would mean a nested AI call inside a tool
+     * invocation, which this deliberately avoids — tools stay real-data-only.
+     */
+    List<Recommendation> buildRuleBasedRecommendations(String sessionId) {
+        HealthSummary health = insightsService.healthSummary(sessionId);
+        List<Recommendation> recommendations = new ArrayList<>();
+        for (String observation : health.observations()) {
+            recommendations.add(new Recommendation("Financial health observation", observation, health.topCategory(), "medium"));
+        }
+        return recommendations;
     }
 
     private String sessionId(ToolContext toolContext) {

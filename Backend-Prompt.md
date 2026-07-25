@@ -124,6 +124,33 @@ Before wiring this, **ask me which model provider** (Anthropic via `spring-ai-an
 3. In-memory conversation memory only (per `conversationId`, cleared on session expiry) — no persistent chat history for this phase.
 4. Wrap every AI and sandbox call with fallback handling — judges will interact live; a slow/flaky external call shouldn't crash the demo.
 
+> **Addendum (added after initial Step 6 build) — Personalized AI Recommendations.**
+> `coaching-tip` above only reasons over the *current month's* snapshot. A separate
+> **`GET /api/ai/recommendations`** endpoint was added on top, grounded in a broader view: a
+> 6-month income/expense (Credit vs Debit) **trend** plus the current month's **category
+> breakdown**, so it can surface trajectory-level observations ("income dropped two months
+> running") rather than only a single point-in-time number. It returns 3-5 structured
+> recommendations (`title`, `description`, nullable `category`, `priority`), with the same
+> rule-based fallback contract as `coaching-tip` if the model call fails.
+>
+> A `getPersonalizedRecommendations` tool was also added to the tool-calling surface from
+> point 1 above, so the conversational `/api/ai/chat` assistant can answer "give me some
+> recommendations" grounded in real data too — that tool intentionally returns deterministic
+> rule-based data rather than triggering a second nested AI call from inside a tool invocation;
+> the outer chat call's own single LLM turn phrases the natural-language reply.
+>
+> **A real bug was found and fixed while building this:** the original `ChatClientConfig`
+> registered the chat-memory advisor as a **default** advisor on the shared `ChatClient` bean.
+> That advisor requires a `conversationId` on every call it wraps — fine for the conversational
+> `chat()` flow, but `coaching-tip` (and the new `recommendations`) are single-shot stateless
+> prompts that never set one, so every call to them threw
+> `IllegalArgumentException: conversationId cannot be null` internally. Their try/catch fallback
+> silently absorbed this, and the fallback text was plausible enough that it went unnoticed
+> through initial manual testing — the earlier "coaching-tip is working" confirmation was
+> actually the fallback path the whole time, not real model output. Fixed by removing the
+> advisor from the client's defaults and adding it only per-call inside `chat()`, where a
+> `conversationId` genuinely exists. See `IMPLEMENTATION_PLAN.md` Phase 6 for the full account.
+
 ---
 
 ## Step 7 — Cross-Cutting Concerns

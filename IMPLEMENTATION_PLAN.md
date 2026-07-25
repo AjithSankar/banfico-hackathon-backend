@@ -36,14 +36,36 @@ independently once the blocking phases are done.
   these need to visibly show something.
 - **Phase 6 (AI layer): done and verified live.** `POST /api/ai/chat` (tool-calling grounded in
   `FinancialTools` → `AccountService`/`InsightsService`, in-memory conversation history per
-  `conversationId`, defaults to `sessionId` if omitted) and `GET /api/ai/coaching-tip`
-  (structured-output prompt fed by live `spendingSummary`/`anomalies`/`healthSummary`, with a
-  rule-based fallback to `healthSummary.observations()` if the model call fails or returns no
-  tips) both confirmed working against local Ollama (`qwen2.5:7b`). See `API_REFERENCE.md`.
+  `conversationId`, defaults to `sessionId` if omitted), `GET /api/ai/coaching-tip`
+  (structured-output prompt fed by live `spendingSummary`/`anomalies`/`healthSummary`), and
+  `GET /api/ai/recommendations` (Personalized AI Recommendations — see below) all confirmed
+  working against local Ollama (`qwen2.5:7b`). See `API_REFERENCE.md`.
   **Known issue (external, not our code):** the sandbox's own token endpoint has been observed
   intermittently rejecting/timing out during testing — `SandboxTokenService` already has
   Resilience4j retry + circuit breaker (Phase 2) for this, but if it recurs during judging,
   check whether it's sandbox-side flakiness before assuming a backend bug.
+- **Post-Phase-6 addition: Personalized AI Recommendations.** `GET /api/ai/recommendations`
+  (`FinancialAssistantService.recommendations`) generates 3-5 structured recommendations
+  (`title`, `description`, `category`, `priority`) grounded in a **6-month income/expense
+  (Credit vs Debit) trend** plus the current month's category breakdown — broader context than
+  `coaching-tip`'s current-month-only snapshot. Also added `FinancialTools.getPersonalizedRecommendations`,
+  a real `@Tool` the `/api/ai/chat` assistant can call directly when a user asks for
+  recommendations conversationally (returns the same deterministic rule-based data as the
+  fallback below — a tool must not itself trigger a second nested AI call, so this is
+  intentionally not AI-generated at the tool layer; the outer chat call's own single LLM
+  invocation phrases the final reply).
+  **Bug found and fixed during this work:** `ChatClientConfig` originally registered
+  `MessageChatMemoryAdvisor` as a **default** advisor on the shared `ChatClient` bean. That
+  advisor requires a `conversationId` on every call it wraps — fine for `chat()`, but
+  `coachingTip()`/`recommendations()` are single-shot stateless prompts that never set one, so
+  every call to them threw `IllegalArgumentException: conversationId cannot be null` internally.
+  Both methods' try/catch silently swallowed this and returned the rule-based fallback, which
+  looked plausible enough that the bug went unnoticed through initial testing — **the earlier
+  "coaching-tip working fine" result in this session was actually the fallback path the whole
+  time, not real AI output.** Fixed by removing the advisor from `ChatClientConfig`'s defaults
+  entirely and adding it only per-call inside `chat()`, where a `conversationId` genuinely
+  exists. Re-verified live afterward: both `coaching-tip` and `recommendations` now return
+  genuine model-generated text referencing real numbers, not the fallback template.
 - **Phase 7 (cross-cutting): done and verified live.** All items landed incrementally during
   Phases 1-6 (see the Phase 7 section below for specifics on each). Swagger UI
   (`/swagger-ui/index.html`) and `/v3/api-docs` confirmed reachable without auth, listing all
@@ -283,6 +305,14 @@ Uses Ollama (local) per Phase 0 decision.
   already, so per-conversation growth is bounded; only the *number* of distinct conversations
   could grow unbounded over a very long-running demo, which is a non-issue at hackathon scale.
   Revisit only if this becomes a real long-lived deployment.
+- **Post-Phase-6 addition — Personalized AI Recommendations:** `GET /api/ai/recommendations`
+  (`FinancialAssistantService.recommendations`), `ai/Recommendation` + `ai/RecommendationsResponse`
+  DTOs, and `FinancialTools.getPersonalizedRecommendations` (a real `@Tool`, so `/api/ai/chat`
+  can answer "give me some recommendations" grounded in real data instead of the model
+  inventing generic advice). Uses `InsightsService.trend(sessionId, 6)` + `categoryBreakdown` +
+  `healthSummary` + `anomalies` — full history/trajectory, not just the current month. Verified
+  live with genuine model-generated output (see the `ChatClientConfig`/memory-advisor bug note
+  above — this surfaced and got fixed during this work).
 
 ---
 

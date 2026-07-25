@@ -8,119 +8,180 @@ sandbox fresh on every request, and financial insights are computed on the fly f
 transactions come back. See [Why no persistence](#why-no-persistence-and-where-it-would-slot-in)
 for the reasoning and where a cache/DB would go later.
 
-```mermaid
-flowchart TB
-    FE["React frontend<br/>(localhost:5173)"]
-
-    subgraph Backend["Spring Boot backend (localhost:9091)"]
-        direction TB
-        SEC["SecurityConfig<br/>CorsFilter → RequestLoggingFilter → SessionAuthFilter"]
-
-        subgraph Controllers
-            AuthC["LoginController"]
-            AcctC["AccountController"]
-            TxC["TransactionController"]
-            DashC["DashboardController"]
-            InsC["InsightsController"]
-            AiC["ChatController"]
-        end
-
-        subgraph Services
-            AcctSvc["AccountService"]
-            TxSvc["TransactionService<br/>+ TransactionCategoryClassifier"]
-            DashSvc["DashboardService"]
-            InsSvc["InsightsService"]
-            AiSvc["FinancialAssistantService<br/>+ FinancialTools"]
-        end
-
-        subgraph SandboxLayer["sandbox/ package"]
-            TokenSvc["SandboxTokenService<br/>(session → token bundle cache)"]
-            AisClient["SandboxAisClient<br/>(Resilience4j retry + circuit breaker)"]
-        end
-
-        ChatClient["Spring AI ChatClient"]
-    end
-
-    Keycloak["Keycloak token endpoint<br/>auth.{domain}"]
-    CoreApi["OBIE AISP v4.0 API<br/>core-api.{domain}"]
-    Ollama["Ollama (local)<br/>qwen2.5:7b"]
-
-    FE -->|"Bearer sessionToken"| SEC --> Controllers
-    AuthC --> TokenSvc
-    AcctC --> AcctSvc
-    TxC --> TxSvc
-    DashC --> DashSvc --> AcctSvc
-    DashC --> DashSvc --> TxSvc
-    InsC --> InsSvc --> AcctSvc
-    InsSvc --> TxSvc
-    AiC --> AiSvc --> ChatClient
-    AiSvc -.tools.-> InsSvc
-    AiSvc -.tools.-> AcctSvc
-
-    AcctSvc --> AisClient
-    TxSvc --> AisClient
-    AisClient -->|"Bearer real access_token"| CoreApi
-    AisClient -.401 triggers refresh.-> TokenSvc
-    TokenSvc -->|"password / refresh_token grant"| Keycloak
-    ChatClient --> Ollama
+```
+ React frontend (localhost:5173)
+          |
+          |  Authorization: Bearer <sessionToken>
+          v
+ +--------------------------------------------------------------------+
+ |  Spring Boot backend (localhost:9091)                               |
+ |                                                                      |
+ |  CorsFilter -> RequestLoggingFilter -> SessionAuthFilter             |
+ |  (security filter chain — see "Two-token model" below)              |
+ |                                                                      |
+ |  Controllers                                                        |
+ |   LoginController   AccountController   TransactionController       |
+ |   DashboardController   InsightsController   ChatController         |
+ |        |                  |                     |                   |
+ |        v                  v                     v                   |
+ |  Services                                                            |
+ |   AccountService   TransactionService   DashboardService             |
+ |   InsightsService   FinancialAssistantService (+ FinancialTools)     |
+ |        |                                          |                  |
+ |        v                                          v                  |
+ |  sandbox/ package                          Spring AI ChatClient      |
+ |   SandboxTokenService   SandboxAisClient           |                  |
+ |   (Resilience4j retry + circuit breaker)           |                  |
+ +--------------------|-------------------------------|------------------+
+                       |                               |
+                       v                               v
+          +-------------------------+       +----------------------+
+          | Keycloak token endpoint  |       | Ollama (local)        |
+          | auth.{domain}            |       | qwen2.5:7b            |
+          +-------------------------+       +----------------------+
+                       |
+                       v
+          +-------------------------+
+          | OBIE AISP v4.0 API        |
+          | core-api.{domain}         |
+          +-------------------------+
 ```
 
 ## Two-token model (why `sessionToken` ≠ sandbox `access_token`)
 
 The frontend never sees the sandbox's real OAuth2 tokens. `SessionAuthFilter` and
-`SandboxTokenService` together keep that boundary:
+`SandboxTokenService` together keep that boundary. Step by step:
 
-```mermaid
-sequenceDiagram
-    participant FE as React frontend
-    participant Filter as SessionAuthFilter
-    participant Login as LoginController
-    participant TokenSvc as SandboxTokenService
-    participant AisClient as SandboxAisClient
-    participant Sandbox as Sandbox (Keycloak + OBIE API)
+1. Frontend sends `POST /api/auth/login` with `{ username, password }` (the end customer's real
+   sandbox credentials).
+2. `LoginController` generates a new opaque `sessionId` (a UUID) and calls
+   `SandboxTokenService.login(sessionId, username, password)`.
+3. `SandboxTokenService` exchanges the credentials with Keycloak (`grant_type=password`) and
+   caches the returned `{ access_token, refresh_token, expires_in }` in memory, keyed by
+   `sessionId` — a `ConcurrentHashMap<String, TokenBundle>`.
+4. `LoginController` returns `{ sessionToken: sessionId, expiresInSeconds }` to the frontend.
+   **The real sandbox tokens never leave the backend.**
+5. Frontend calls any protected endpoint (e.g. `GET /api/dashboard`) with
+   `Authorization: Bearer <sessionToken>`.
+6. `SessionAuthFilter` extracts that token, calls `SandboxTokenService.getAccessToken(sessionId)`
+   — which transparently refreshes the sandbox access token first if it's expiring soon — and,
+   if valid, stores `sessionId` as the authenticated principal in Spring Security's
+   `SecurityContextHolder` for the rest of the request.
+7. The controller's service layer calls `SandboxAisClient`, which resolves the **real** access
+   token from `SandboxTokenService` and calls the OBIE API with
+   `Authorization: Bearer <real access_token>`.
+8. If the sandbox responds `401`, `SandboxAisClient` calls `SandboxTokenService.refresh(sessionId)`
+   once and retries the same call once; if it still fails, a `SandboxAuthException` propagates
+   up and `GlobalExceptionHandler` maps it to a clean `401` (never a raw Keycloak error body).
 
-    FE->>Login: POST /api/auth/login {username, password}
-    Login->>TokenSvc: login(sessionId=UUID, username, password)
-    TokenSvc->>Sandbox: password grant
-    Sandbox-->>TokenSvc: access_token, refresh_token, expires_in
-    TokenSvc-->>TokenSvc: cache TokenBundle keyed by sessionId
-    Login-->>FE: { sessionToken: sessionId, expiresInSeconds }
+`CurrentSession.sessionId()` is how every controller/service reads the authenticated session id
+back out of `SecurityContextHolder` (set in step 6) — nobody re-parses the `Authorization` header
+themselves.
 
-    FE->>Filter: GET /api/dashboard  Authorization: Bearer sessionToken
-    Filter->>TokenSvc: getAccessToken(sessionId)
-    alt access token expiring soon
-        TokenSvc->>Sandbox: refresh_token grant
-        Sandbox-->>TokenSvc: new access_token
-    end
-    TokenSvc-->>Filter: real access_token (not returned to caller)
-    Filter-->>Filter: SecurityContext.authentication = sessionId
-    Filter->>AisClient: (via controller/service) getAccounts(sessionId)
-    AisClient->>TokenSvc: getAccessToken(sessionId)
-    AisClient->>Sandbox: GET /accounts  Bearer real access_token
-    Sandbox-->>AisClient: account data
-    AisClient-->>FE: mapped through Service → Controller → ApiResponse
-```
+## Components built
 
-If the sandbox call 401s mid-request, `SandboxAisClient` refreshes once via `SandboxTokenService`
-and retries exactly once before surfacing a `SandboxAuthException` → mapped to a clean `401` by
-`GlobalExceptionHandler` (never a raw Keycloak error body).
+### `auth/` — our own thin session layer (no user DB)
+- **`LoginController`** — `POST /api/auth/login`, `POST /api/auth/logout`
+- **`LoginRequest` / `LoginResponse`** — request/response DTOs (`sessionToken`, `expiresInSeconds`)
+- **`SessionAuthFilter`** — validates the bearer `sessionToken` on every `/api/**` request except
+  `/api/auth/login`; bypasses `OPTIONS` (CORS preflight) explicitly
+- **`CurrentSession`** — static helper to read the authenticated `sessionId` from `SecurityContextHolder`
 
-## Package structure
+### `sandbox/` — sandbox integration layer (blocking dependency for everything else)
+- **`SandboxTokenService`** — Keycloak password/refresh grant exchange, in-memory session→token cache
+- **`SandboxAisClient`** — typed wrapper over every OBIE endpoint (get/create accounts, balances,
+  transactions), 401-triggers-refresh-and-retry-once, Resilience4j retry + circuit breaker
+- **`TokenBundle`** — access/refresh token + expiry record
+- **`sandbox/dto/`** — faithful raw OBIE request/response records matching the sandbox's exact
+  JSON field names: `ObieAccount`, `ObieAccountData`, `ObieAccountsResponse`,
+  `ObieAccountIdentification`, `ObieServicer`, `ObieStatementFrequency`, `ObieDeliveryAddress`,
+  `ObieBalance`, `ObieBalanceData`, `ObieBalancesResponse`, `ObieTransaction`,
+  `ObieTransactionData`, `ObieTransactionsResponse`, `ObieBankTransactionCode`,
+  `ObieMerchantDetails`, `ObieTransactionBalance`, `ObieAmount`, `TokenResponse`, plus the
+  create-request DTOs (`ObieAccountCreateRequest`, `ObieTransactionCreateRequest`,
+  `ObieAgent`, `ObieAccountRef`, `ObieUltimateParty`, `ObieCardInstrument`,
+  `ObieProprietaryBankTransactionCode`, `ObieExtendedProprietaryCode`, `ObiePostalAddress`)
 
-```
-com.banfico.fintech
- ├── auth/        LoginController, SessionAuthFilter, CurrentSession
- ├── sandbox/      SandboxTokenService, SandboxAisClient, dto/ (faithful raw OBIE records)
- ├── account/     AccountService, AccountController (flattens sandbox DTOs → our API shapes)
- ├── transaction/ TransactionService, TransactionCategoryClassifier, TransactionController
- ├── insights/    InsightsService (all 6 metrics), InsightsController
- ├── ai/          ChatClientConfig, FinancialTools (@Tool methods), FinancialAssistantService,
- │                 ChatController
- ├── dashboard/   DashboardService (concurrent fan-out), DashboardController
- ├── common/      ApiResponse<T>, GlobalExceptionHandler, RequestLoggingFilter, Masking,
- │                 Concurrency, PagedResult, RestClientConfig, exception/
- └── config/      SecurityConfig, CorsConfig, SandboxProperties
-```
+### `account/` — flattened account/balance API
+- **`AccountService`** — maps raw OBIE DTOs to our own shapes; fans out per-account balance
+  calls concurrently for `listAccounts`
+- **`AccountController`** — `GET /api/accounts`, `GET /api/accounts/{id}`,
+  `GET /api/accounts/{id}/balance`, `POST /api/accounts` (bonus demo-seeding)
+- **`AccountSummary` / `AccountDetail` / `BalanceResponse`** — response DTOs
+
+### `transaction/` — transaction history + categorization
+- **`TransactionCategoryClassifier`** — MCC-code-first, keyword-fallback category classifier
+- **`TransactionService`** — per-account history fetch + classify + filter (category/date) + sort
+- **`TransactionController`** — `GET /api/accounts/{id}/transactions` (category/from/to/page/size),
+  `POST /api/accounts/{id}/transactions` (bonus demo-seeding)
+- **`TransactionSummary`** — response DTO
+
+### `dashboard/` — aggregated home-screen endpoint
+- **`DashboardService`** — accounts (with balances) + total balance + 10 most recent
+  transactions across all accounts, built from concurrent per-account fan-out
+- **`DashboardController`** — `GET /api/dashboard`
+- **`DashboardResponse`** — response DTO
+
+### `insights/` — financial insights (all computed live, nothing cached)
+- **`InsightsService`** — spending summary, category breakdown, N-month trend, anomaly
+  detection (mean + 2×stddev per category), rule-based health summary, subscription
+  (recurring-merchant) detection, and category+month transaction lookup for the AI tool layer
+- **`InsightsController`** — `GET /api/insights/spending-summary`, `/category-breakdown`,
+  `/trend`, `/anomalies`, `/health-summary`, `/subscriptions`
+- **DTOs** — `SpendingSummary`, `CategoryBreakdown`/`CategoryBreakdownResponse`,
+  `MonthlyTrend`/`TrendResponse`, `AnomalyTransaction`, `HealthSummary`, `SubscriptionCandidate`
+
+### `ai/` — Spring AI chat assistant, coaching tips, and personalized recommendations
+- **`ChatClientConfig`** — `ChatClient` bean (Ollama-backed) with a grounded system prompt, plus
+  a separate `ChatMemory` bean (`MessageWindowChatMemory`, in-memory, 20-message window). The
+  memory advisor is deliberately **not** a default advisor on the `ChatClient` — see the bug
+  note in `IMPLEMENTATION_PLAN.md` Phase 6 (a default memory advisor requires a `conversationId`
+  on every call, which broke the single-shot `coachingTip`/`recommendations` prompts). It's
+  added per-call in `FinancialAssistantService.chat()` instead, where a `conversationId`
+  genuinely exists.
+- **`FinancialTools`** — `@Tool`-annotated methods (`getAccountBalances`,
+  `getTransactionsByCategory`, `getSpendingSummary`, `getAnomalies`,
+  `getPersonalizedRecommendations`) reading `sessionId` from `ToolContext` per call, delegating
+  straight to `AccountService`/`InsightsService`. `getPersonalizedRecommendations` returns
+  deterministic rule-based recommendations (built from `InsightsService.healthSummary`) rather
+  than triggering a second nested AI call from within a tool — the outer chat call's own single
+  LLM invocation phrases the natural-language reply using that data.
+- **`FinancialAssistantService`** — `chat(...)` (tool-calling + per-call conversation memory,
+  defaults `conversationId` to the session id), `coachingTip(...)` (structured-output prompt
+  from the current month's live insights data), and `recommendations(...)` (structured-output
+  prompt from a 6-month income/expense trend + current-month category breakdown — broader
+  context than `coachingTip`). All three AI calls are wrapped in try/catch fallback so a
+  slow/unreachable model degrades gracefully instead of erroring; `recommendations`' fallback
+  reuses `FinancialTools.buildRuleBasedRecommendations` (the same method backing the
+  `getPersonalizedRecommendations` tool) rather than duplicating the logic.
+- **`ChatController`** — `POST /api/ai/chat`, `GET /api/ai/coaching-tip`,
+  `GET /api/ai/recommendations`
+- **DTOs** — `ChatRequest`, `ChatResponse`, `CoachingTipsResponse`, `Recommendation`,
+  `RecommendationsResponse`
+
+### `common/` — cross-cutting concerns
+- **`ApiResponse<T>`** — the `{ success, data, error }` envelope every endpoint returns
+- **`GlobalExceptionHandler`** — maps `SandboxAuthException`→401, validation errors→400,
+  everything else→500, with logging
+- **`RequestLoggingFilter`** — logs method/path/status/duration for every request, stamps a
+  short correlation id into SLF4J's MDC (`reqId`) so one request's log lines can be grepped
+  together across services
+- **`Masking`** — truncates session ids before they're logged (they're bearer credentials for
+  our own API); sandbox access/refresh tokens are never logged at all, not even truncated
+- **`Concurrency`** — `mapConcurrently(items, mapper)`, fans a list out across virtual threads
+  and joins results back in input order
+- **`PagedResult<T>`** — generic in-memory pagination wrapper
+- **`RestClientConfig`** — two `RestClient` beans (sandbox auth + AIS core API base URLs) with
+  connect/read timeouts via `JdkClientHttpRequestFactory`
+- **`common/exception/SandboxAuthException`** — thrown on sandbox auth failure
+
+### `config/` — application configuration
+- **`SecurityConfig`** — wires `SessionAuthFilter`, `RequestLoggingFilter`, and CORS into the
+  Spring Security filter chain (CORS registered via `HttpSecurity.cors(...)`, not a plain
+  `WebMvcConfigurer`, so preflight requests are answered before `SessionAuthFilter` ever runs)
+- **`CorsConfig`** — exposes the `CorsConfigurationSource` bean consumed by `SecurityConfig`
+- **`SandboxProperties`** — `@ConfigurationProperties(prefix = "sandbox")` record for
+  domain/tenant/client-id/client-secret
 
 ## Concurrency
 

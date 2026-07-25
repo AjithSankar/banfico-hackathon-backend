@@ -423,10 +423,11 @@ Response:
 ```
 
 The model has live tool access to account balances, category/month-filtered transactions,
-monthly spending summaries, and anomaly data — answers are grounded in real numbers, not
-hallucinated. Send the returned `conversationId` back on the next call (or just keep omitting it)
-to continue the same conversation; the backend remembers the last 20 messages per conversation
-in memory (no persistence — lost on backend restart).
+monthly spending summaries, anomaly data, and personalized recommendations (the same
+rule-based data `GET /api/ai/recommendations` falls back to) — answers are grounded in real
+numbers, not hallucinated. Send the returned `conversationId` back on the next call (or just
+keep omitting it) to continue the same conversation; the backend remembers the last 20 messages
+per conversation in memory (no persistence — lost on backend restart).
 
 If the model itself fails or times out, `reply` will be an apologetic fallback string rather
 than an HTTP error — check for that string if you want to show a "try again" affordance instead
@@ -455,6 +456,49 @@ summary, total balance, savings rate, top category, and anomaly count.
 If the AI call fails or returns no tips, `tips` falls back to the same rule-based observation
 strings as `GET /api/insights/health-summary`'s `observations` field — always render `tips` as a
 plain list either way, no need to branch on whether it came from the model or the fallback.
+
+### `GET /api/ai/recommendations`
+
+No body/params. The "Personalized AI Recommendations" feature — broader and deeper than
+`coaching-tip`: instead of just the current month's snapshot, the prompt is grounded in a
+**6-month income/expense (Credit vs Debit) trend** plus the **current month's category
+breakdown**, so recommendations can reference trajectory ("income dropped two months running"),
+not just a single point-in-time number. Returns 3-5 structured recommendations.
+
+```json
+{
+  "success": true,
+  "data": {
+    "recommendations": [
+      {
+        "title": "Increase Income Streams",
+        "description": "Income in the last two months has been significantly lower than the previous four, with a net loss of £11,690.52 in June and no income in April or May.",
+        "category": "Income",
+        "priority": "high"
+      },
+      {
+        "title": "Boost Savings Rate",
+        "description": "Your current savings rate is 51.68%, which is good, but there's room to increase it further given the high net income in July.",
+        "category": "Savings",
+        "priority": "medium"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+- `category` is nullable — some recommendations (e.g. a general savings goal) aren't tied to one
+  spending category.
+- `priority` is `"high"` / `"medium"` / `"low"`.
+- If the AI call fails or returns nothing, falls back to a rule-based recommendation per
+  `health-summary` observation (title `"Financial health observation"`, `category` set to the
+  user's top spending category, `priority` always `"medium"`) — same non-fatal-degradation
+  contract as `coaching-tip`.
+- **This same rule-based fallback logic is also exposed as a tool the `/api/ai/chat` assistant
+  can call directly** (`getPersonalizedRecommendations`) — so asking the chat assistant something
+  like *"can you give me some recommendations?"* is grounded in the same real data rather than
+  the model inventing generic advice.
 
 ---
 
