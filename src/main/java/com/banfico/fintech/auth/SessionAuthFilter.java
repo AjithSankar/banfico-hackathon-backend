@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -44,6 +45,12 @@ public class SessionAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        // CORS preflight requests never carry credentials — Spring Security's CorsFilter (see
+        // SecurityConfig) answers these before this filter runs, but skip explicitly too as a
+        // second line of defense so a future filter-order change can't reintroduce CORS errors.
+        if (HttpMethod.OPTIONS.matches(request.getMethod())) {
+            return true;
+        }
         String path = request.getRequestURI();
         return !path.startsWith("/api/") || PUBLIC_API_PATHS.contains(path);
     }

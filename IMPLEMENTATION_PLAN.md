@@ -261,7 +261,16 @@ Can start as soon as Phase 3/4 controllers exist; refine continuously rather tha
   landed in Phase 3, now with logging — see below).
 - Resilience4j timeouts + retry + circuit breaker on all sandbox HTTP calls. **Done** (Phase 2).
 - Bean Validation on request DTOs. **Done** (`LoginRequest`).
-- CORS for the Vite dev server. **Done** (Phase 1).
+- CORS for the Vite dev server. **Done, fixed properly after a real bug.** The original
+  Phase 1 version registered CORS via a plain `WebMvcConfigurer`, which runs too late —
+  Spring Security's filter chain (specifically `SessionAuthFilter`) intercepted CORS preflight
+  (`OPTIONS`) requests first and 401'd them (no `Authorization` header on a preflight), which
+  the browser reported as a CORS error. Fixed by exposing a `CorsConfigurationSource` bean
+  (`config/CorsConfig`) and wiring it via `HttpSecurity.cors(...)` in `SecurityConfig`, so
+  Spring Security's own `CorsFilter` runs first, ahead of every other filter. Also added a
+  defensive `OPTIONS` bypass directly in `SessionAuthFilter.shouldNotFilter` as a second line of
+  defense. Verified live: `OPTIONS /api/dashboard` preflight now returns `200` with correct
+  `Access-Control-Allow-*` headers, and the frontend's original error is gone.
 - OpenAPI/Swagger UI at `/swagger-ui.html`. **Done** (dependency added Phase 1, works out of the box).
 - **Request logging: done.** `common/RequestLoggingFilter` logs method/path/status/duration for
   every request, wrapped around the whole security chain, with a per-request correlation id

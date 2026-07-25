@@ -1,8 +1,8 @@
 # API Reference — Fintech Backend
 
-For the React frontend team. Covers everything implemented through **Phase 4** (auth, accounts,
-balances, transactions, dashboard). Insights (Phase 5) and the AI chat assistant (Phase 6) aren't
-built yet — this doc will be extended when they land.
+For the React frontend team. Covers everything implemented through **Phase 5** (auth, accounts,
+balances, transactions, dashboard, insights). The AI chat assistant (Phase 6) isn't built yet —
+this doc will be extended when it lands.
 
 ## Base URL
 
@@ -266,6 +266,133 @@ multi-currency accounts show up later.
 
 ---
 
+## Insights
+
+Computed live from transactions across **all** accounts, fetched fresh on every call (no
+persistence/caching yet — each of these endpoints re-fetches from the sandbox).
+
+> **Demo-data caveat, read before building charts against these:** the sandbox's seed data marks
+> almost every transaction as `creditDebitIndicator: "Credit"`, so `totalExpense` will show `0`
+> and everything looks like "income" until some `Debit` transactions exist. Seed data also mostly
+> shares one merchant category code (`1711` → `"Home Services"`), so `category-breakdown` will
+> look monotonous, and merchant names are randomly generated per transaction so `subscriptions`
+> will likely return an empty list. None of this is a bug — it's what the current sandbox seed
+> data looks like. Ask the backend team about seeding more varied demo data before a judging
+> walkthrough if these need to visibly show something.
+
+### `GET /api/insights/spending-summary?month=YYYY-MM`
+
+`month` is optional, defaults to the current month.
+
+```json
+{
+  "success": true,
+  "data": {
+    "month": "2026-07",
+    "currency": "GBP",
+    "totalIncome": 320.85,
+    "totalExpense": 0,
+    "netChange": 320.85,
+    "transactionCount": 4
+  },
+  "error": null
+}
+```
+
+### `GET /api/insights/category-breakdown?month=YYYY-MM`
+
+`month` optional, defaults to current month. `percentageOfTotal` is of that month's total
+transaction volume, sorted highest-first.
+
+```json
+{
+  "success": true,
+  "data": {
+    "month": "2026-07",
+    "currency": "GBP",
+    "categories": [
+      { "category": "Home Services", "totalAmount": 320.85, "transactionCount": 4, "percentageOfTotal": 100.00 }
+    ]
+  },
+  "error": null
+}
+```
+
+### `GET /api/insights/trend?months=6`
+
+Oldest-first, one entry per month, zero-filled for months with no transactions — safe to feed
+straight into a bar/line chart without gap-filling client-side.
+
+```json
+{
+  "success": true,
+  "data": {
+    "currency": "GBP",
+    "months": [
+      { "month": "2026-02", "totalIncome": 0, "totalExpense": 0, "netChange": 0, "transactionCount": 0 },
+      { "month": "2026-03", "totalIncome": 0, "totalExpense": 0, "netChange": 0, "transactionCount": 0 },
+      { "month": "2026-07", "totalIncome": 320.85, "totalExpense": 0, "netChange": 320.85, "transactionCount": 4 }
+    ]
+  },
+  "error": null
+}
+```
+
+### `GET /api/insights/anomalies`
+
+Transactions that exceed their own category's mean + 2×standard-deviation. A category needs at
+least 3 transactions before it's considered at all (otherwise stats are meaningless) — so this
+frequently returns `[]` on lightly-seeded accounts, as it does today:
+
+```json
+{ "success": true, "data": [], "error": null }
+```
+
+Shape when non-empty: `{ transaction: <TransactionSummary>, categoryMean, categoryStdDev, deviationMultiple }`.
+
+### `GET /api/insights/health-summary`
+
+Rule-based snapshot — no AI yet (Phase 6 layers AI-generated coaching on top of this same data).
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalBalance": 20796.96,
+    "currency": "GBP",
+    "currentMonthIncome": 320.85,
+    "currentMonthExpense": 0,
+    "netChange": 320.85,
+    "savingsRatePercent": 100.00,
+    "topCategory": "Home Services",
+    "observations": [
+      "You're in the green this month — income covered expenses.",
+      "Your top category this month is Home Services.",
+      "Savings rate this month: 100.00%.",
+      "No unusual spending detected."
+    ]
+  },
+  "error": null
+}
+```
+
+`savingsRatePercent` is `null` if there was no income that month (avoids a divide-by-zero).
+`observations` is a plain string list meant to render directly — don't parse it for structured
+data, that's what the other fields are for.
+
+### `GET /api/insights/subscriptions`
+
+Recurring same-merchant, similarly-sized (±15%), roughly-monthly (20-40 day interval)
+transactions. Empty today (see the demo-data caveat above):
+
+```json
+{ "success": true, "data": [], "error": null }
+```
+
+Shape when non-empty: `{ merchantName, averageAmount, currency, occurrenceCount, estimatedFrequencyDays, lastBookingDateTime }`.
+
+---
+
 ## Minimal React integration sketch
 
 ```js
@@ -304,8 +431,6 @@ const dashboard = await apiFetch("/api/dashboard", { token: sessionToken });
 
 ## Not yet available
 
-- **Insights** (`/api/insights/*` — spending summary, category breakdown, trends, anomalies,
-  health summary, subscriptions) — Phase 5, not started.
 - **AI chat assistant** (`/api/ai/chat`, `/api/ai/coaching-tip`) — Phase 6, not started.
 
-This doc will be updated as those land — check back before building against them.
+This doc will be updated as that lands — check back before building against it.

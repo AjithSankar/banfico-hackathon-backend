@@ -82,6 +82,16 @@ public class InsightsService {
         return computeSubscriptions(all);
     }
 
+    /** Across all accounts; month is optional (null = all time). Used by the AI chat tool layer (Phase 6). */
+    public List<TransactionSummary> transactionsByCategory(String sessionId, String category, YearMonth month) {
+        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return all.stream()
+                .filter(t -> category.equalsIgnoreCase(t.category()))
+                .filter(t -> month == null || YearMonth.from(t.bookingDateTime().atZone(ZoneOffset.UTC)).equals(month))
+                .sorted(Comparator.comparing(TransactionSummary::bookingDateTime).reversed())
+                .toList();
+    }
+
     public HealthSummary healthSummary(String sessionId) {
         List<AccountSummary> accounts = accountService.listAccounts(sessionId);
         List<TransactionSummary> all = fetchAllTransactions(sessionId);
