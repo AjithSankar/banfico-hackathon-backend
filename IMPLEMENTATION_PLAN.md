@@ -34,6 +34,16 @@ independently once the blocking phases are done.
   names essentially never repeat since they're randomly generated per seed transaction). None of
   this indicates a bug — seed more varied demo transactions before a live judging walkthrough if
   these need to visibly show something.
+- **Post-Phase-5 addition: per-account scoping.** All 6 insights endpoints now accept an
+  optional `accountId` query param (frontend request: an account-selector on the Insights page).
+  Implemented as overloads on `InsightsService` (`spendingSummary(sessionId, month)` →
+  `spendingSummary(sessionId, month, accountId)`, etc.) — omit `accountId`, behavior is exactly
+  as before (verified live); pass one and the same aggregation logic scopes to that account's
+  transactions via `TransactionService.listTransactions(sessionId, accountId, ...)` instead of
+  fanning out across all accounts. `healthSummary`'s `totalBalance`/`currency` switch to just
+  that account's balance (via `AccountService.getBalance`) when `accountId` is given, rather
+  than the sum/first of all accounts — confirmed with the frontend team as the expected
+  behavior. See `API_REFERENCE.md`.
 - **Phase 6 (AI layer): done and verified live.** `POST /api/ai/chat` (tool-calling grounded in
   `FinancialTools` → `AccountService`/`InsightsService`, in-memory conversation history per
   `conversationId`, defaults to `sessionId` if omitted), `GET /api/ai/coaching-tip`
@@ -265,13 +275,18 @@ Computed on the fly from transactions fetched once per request and shared across
   skipped, not flagged); `subscriptions` requires ≥2 same-merchant transactions with similar
   amounts (±15%) roughly 20-40 days apart — both returned empty on current seed data, as
   expected given the caveats above.
+- **Post-Phase-5 addition:** every method above also has an `accountId`-scoped overload
+  (`spendingSummary(sessionId, month, accountId)`, etc.) — `accountId == null` delegates to the
+  original all-accounts behavior unchanged, so this was a backward-compatible, non-breaking
+  addition. See Status section at the top of this file for the frontend request that drove it.
 
 **Contracts agreed for Phase 6+ to build on:**
 - `InsightsService.spendingSummary(sessionId, YearMonth)`, `.categoryBreakdown(sessionId, YearMonth)`,
   `.trend(sessionId, months)`, `.anomalies(sessionId)`, `.healthSummary(sessionId)`,
   `.subscriptions(sessionId)` — these are exactly the tool-calling surface Phase 6's
   `ChatClient` tools should wrap (per `Backend-Prompt.md` Step 6: `getSpendingSummary`,
-  `getAnomalies`, etc.) — call these methods directly, don't reimplement the logic.
+  `getAnomalies`, etc.) — call these methods directly, don't reimplement the logic. Each also
+  has an `accountId`-scoped overload (see above) if a future tool needs per-account scoping.
   `InsightsService` already fetches transactions once per call and shares them across whatever
   sub-metrics that call needs, so Phase 6 tools calling multiple of these back-to-back should be
   aware each call still re-fetches from the sandbox (no cross-call caching yet).

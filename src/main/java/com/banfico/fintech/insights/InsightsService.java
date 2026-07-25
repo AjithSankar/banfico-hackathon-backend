@@ -2,6 +2,7 @@ package com.banfico.fintech.insights;
 
 import com.banfico.fintech.account.AccountService;
 import com.banfico.fintech.account.AccountSummary;
+import com.banfico.fintech.account.BalanceResponse;
 import com.banfico.fintech.common.Concurrency;
 import com.banfico.fintech.sandbox.SandboxAisClient;
 import com.banfico.fintech.sandbox.dto.ObieAccount;
@@ -57,28 +58,53 @@ public class InsightsService {
     }
 
     public SpendingSummary spendingSummary(String sessionId, YearMonth month) {
-        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return spendingSummary(sessionId, month, null);
+    }
+
+    /** @param accountId optional — scope to one account's transactions instead of all accounts. */
+    public SpendingSummary spendingSummary(String sessionId, YearMonth month, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
         return computeSpendingSummary(all, month);
     }
 
     public CategoryBreakdownResponse categoryBreakdown(String sessionId, YearMonth month) {
-        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return categoryBreakdown(sessionId, month, null);
+    }
+
+    /** @param accountId optional — scope to one account's transactions instead of all accounts. */
+    public CategoryBreakdownResponse categoryBreakdown(String sessionId, YearMonth month, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
         List<TransactionSummary> monthly = filterByMonth(all, month);
         return new CategoryBreakdownResponse(month.toString(), resolveCurrency(all), computeCategoryBreakdown(monthly));
     }
 
     public TrendResponse trend(String sessionId, int months) {
-        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return trend(sessionId, months, null);
+    }
+
+    /** @param accountId optional — scope to one account's transactions instead of all accounts. */
+    public TrendResponse trend(String sessionId, int months, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
         return new TrendResponse(resolveCurrency(all), computeTrend(all, months));
     }
 
     public List<AnomalyTransaction> anomalies(String sessionId) {
-        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return anomalies(sessionId, null);
+    }
+
+    /** @param accountId optional — scope to one account's transaction history instead of all accounts. */
+    public List<AnomalyTransaction> anomalies(String sessionId, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
         return computeAnomalies(all);
     }
 
     public List<SubscriptionCandidate> subscriptions(String sessionId) {
-        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return subscriptions(sessionId, null);
+    }
+
+    /** @param accountId optional — scope recurring-charge detection to one account. */
+    public List<SubscriptionCandidate> subscriptions(String sessionId, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
         return computeSubscriptions(all);
     }
 
@@ -93,14 +119,31 @@ public class InsightsService {
     }
 
     public HealthSummary healthSummary(String sessionId) {
-        List<AccountSummary> accounts = accountService.listAccounts(sessionId);
-        List<TransactionSummary> all = fetchAllTransactions(sessionId);
+        return healthSummary(sessionId, null);
+    }
 
-        BigDecimal totalBalance = accounts.stream()
-                .map(AccountSummary::balance)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        String currency = accounts.isEmpty() ? resolveCurrency(all) : accounts.getFirst().currency();
+    /**
+     * @param accountId optional — scope to one account. When present, {@code totalBalance}/
+     *                  {@code currency} reflect just that account instead of the sum/first of all
+     *                  accounts (confirmed with the frontend team: this is the expected behavior).
+     */
+    public HealthSummary healthSummary(String sessionId, String accountId) {
+        List<TransactionSummary> all = fetchTransactions(sessionId, accountId);
+
+        BigDecimal totalBalance;
+        String currency;
+        if (accountId != null && !accountId.isBlank()) {
+            BalanceResponse balance = accountService.getBalance(sessionId, accountId);
+            totalBalance = balance.amount() == null ? BigDecimal.ZERO : balance.amount();
+            currency = balance.currency() != null ? balance.currency() : resolveCurrency(all);
+        } else {
+            List<AccountSummary> accounts = accountService.listAccounts(sessionId);
+            totalBalance = accounts.stream()
+                    .map(AccountSummary::balance)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            currency = accounts.isEmpty() ? resolveCurrency(all) : accounts.getFirst().currency();
+        }
 
         YearMonth currentMonth = YearMonth.now();
         SpendingSummary currentMonthSummary = computeSpendingSummary(all, currentMonth);
@@ -122,6 +165,14 @@ public class InsightsService {
     }
 
     // --- fetch --------------------------------------------------------------------------------
+
+    /** accountId null/blank = all accounts (existing behavior); otherwise just that one account. */
+    private List<TransactionSummary> fetchTransactions(String sessionId, String accountId) {
+        if (accountId != null && !accountId.isBlank()) {
+            return transactionService.listTransactions(sessionId, accountId, null, null, null);
+        }
+        return fetchAllTransactions(sessionId);
+    }
 
     private List<TransactionSummary> fetchAllTransactions(String sessionId) {
         List<ObieAccount> accounts = aisClient.getAccounts(sessionId).Data().Account();

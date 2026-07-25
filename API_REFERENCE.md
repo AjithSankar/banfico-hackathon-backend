@@ -270,6 +270,13 @@ multi-currency accounts show up later.
 Computed live from transactions across **all** accounts, fetched fresh on every call (no
 persistence/caching yet — each of these endpoints re-fetches from the sandbox).
 
+**Every endpoint below accepts an optional `accountId` query param.** Omit it and behavior is
+unchanged (aggregated across all accounts, same as before). Pass an `accountId` (from
+`GET /api/accounts`) and the same aggregation logic scopes to just that one account's
+transactions instead — same response shape either way, just narrower data. Use this to power a
+per-account view on the Insights page (e.g. an account selector) without a separate set of
+endpoints.
+
 > **Demo-data caveat, read before building charts against these:** the sandbox's seed data marks
 > almost every transaction as `creditDebitIndicator: "Credit"`, so `totalExpense` will show `0`
 > and everything looks like "income" until some `Debit` transactions exist. Seed data also mostly
@@ -279,9 +286,9 @@ persistence/caching yet — each of these endpoints re-fetches from the sandbox)
 > data looks like. Ask the backend team about seeding more varied demo data before a judging
 > walkthrough if these need to visibly show something.
 
-### `GET /api/insights/spending-summary?month=YYYY-MM`
+### `GET /api/insights/spending-summary?month=YYYY-MM&accountId=`
 
-`month` is optional, defaults to the current month.
+`month` is optional, defaults to the current month. `accountId` optional (see note above).
 
 ```json
 {
@@ -298,10 +305,11 @@ persistence/caching yet — each of these endpoints re-fetches from the sandbox)
 }
 ```
 
-### `GET /api/insights/category-breakdown?month=YYYY-MM`
+### `GET /api/insights/category-breakdown?month=YYYY-MM&accountId=`
 
-`month` optional, defaults to current month. `percentageOfTotal` is of that month's total
-transaction volume, sorted highest-first.
+`month` optional, defaults to current month. `accountId` optional (see note above).
+`percentageOfTotal` is of that month's total transaction volume (within the scoped account if
+`accountId` is given), sorted highest-first.
 
 ```json
 {
@@ -317,10 +325,11 @@ transaction volume, sorted highest-first.
 }
 ```
 
-### `GET /api/insights/trend?months=6`
+### `GET /api/insights/trend?months=6&accountId=`
 
-Oldest-first, one entry per month, zero-filled for months with no transactions — safe to feed
-straight into a bar/line chart without gap-filling client-side.
+`accountId` optional (see note above). Oldest-first, one entry per month, zero-filled for months
+with no transactions — safe to feed straight into a bar/line chart without gap-filling
+client-side.
 
 ```json
 {
@@ -337,11 +346,13 @@ straight into a bar/line chart without gap-filling client-side.
 }
 ```
 
-### `GET /api/insights/anomalies`
+### `GET /api/insights/anomalies?accountId=`
 
-Transactions that exceed their own category's mean + 2×standard-deviation. A category needs at
-least 3 transactions before it's considered at all (otherwise stats are meaningless) — so this
-frequently returns `[]` on lightly-seeded accounts, as it does today:
+`accountId` optional (see note above) — scopes the transaction history anomaly detection runs
+against to just that account. Transactions that exceed their own category's mean +
+2×standard-deviation. A category needs at least 3 transactions before it's considered at all
+(otherwise stats are meaningless) — so this frequently returns `[]` on lightly-seeded accounts,
+as it does today:
 
 ```json
 { "success": true, "data": [], "error": null }
@@ -349,9 +360,13 @@ frequently returns `[]` on lightly-seeded accounts, as it does today:
 
 Shape when non-empty: `{ transaction: <TransactionSummary>, categoryMean, categoryStdDev, deviationMultiple }`.
 
-### `GET /api/insights/health-summary`
+### `GET /api/insights/health-summary?accountId=`
 
 Rule-based snapshot — no AI yet (Phase 6 layers AI-generated coaching on top of this same data).
+`accountId` optional (see note above) — **when given, `totalBalance` and `currency` reflect
+just that one account instead of the sum/first of all accounts** (the rest of the fields —
+income/expense/net/savings-rate/top-category/observations — were already computed from that
+account's transactions alone, same scoping as every other insights endpoint).
 
 ```json
 {
@@ -379,10 +394,10 @@ Rule-based snapshot — no AI yet (Phase 6 layers AI-generated coaching on top o
 `observations` is a plain string list meant to render directly — don't parse it for structured
 data, that's what the other fields are for.
 
-### `GET /api/insights/subscriptions`
+### `GET /api/insights/subscriptions?accountId=`
 
-Recurring same-merchant, similarly-sized (±15%), roughly-monthly (20-40 day interval)
-transactions. Empty today (see the demo-data caveat above):
+`accountId` optional (see note above). Recurring same-merchant, similarly-sized (±15%),
+roughly-monthly (20-40 day interval) transactions. Empty today (see the demo-data caveat above):
 
 ```json
 { "success": true, "data": [], "error": null }

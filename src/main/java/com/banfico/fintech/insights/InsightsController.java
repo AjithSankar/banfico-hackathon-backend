@@ -23,33 +23,36 @@ public class InsightsController {
 
     @GetMapping("/spending-summary")
     public ApiResponse<SpendingSummary> spendingSummary(
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM") YearMonth month) {
-        return ApiResponse.ok(insightsService.spendingSummary(CurrentSession.sessionId(), month == null ? YearMonth.now() : month));
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM") YearMonth month,
+            @RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.spendingSummary(CurrentSession.sessionId(), month == null ? YearMonth.now() : month, accountId));
     }
 
     @GetMapping("/category-breakdown")
     public ApiResponse<CategoryBreakdownResponse> categoryBreakdown(
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM") YearMonth month) {
-        return ApiResponse.ok(insightsService.categoryBreakdown(CurrentSession.sessionId(), month == null ? YearMonth.now() : month));
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM") YearMonth month,
+            @RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.categoryBreakdown(CurrentSession.sessionId(), month == null ? YearMonth.now() : month, accountId));
     }
 
     @GetMapping("/trend")
-    public ApiResponse<TrendResponse> trend(@RequestParam(defaultValue = "6") int months) {
-        return ApiResponse.ok(insightsService.trend(CurrentSession.sessionId(), months));
+    public ApiResponse<TrendResponse> trend(@RequestParam(defaultValue = "6") int months,
+                                             @RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.trend(CurrentSession.sessionId(), months, accountId));
     }
 
     @GetMapping("/anomalies")
-    public ApiResponse<List<AnomalyTransaction>> anomalies() {
-        return ApiResponse.ok(insightsService.anomalies(CurrentSession.sessionId()));
+    public ApiResponse<List<AnomalyTransaction>> anomalies(@RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.anomalies(CurrentSession.sessionId(), accountId));
     }
 
     @GetMapping("/health-summary")
-    public ApiResponse<HealthSummary> healthSummary() {
-        return ApiResponse.ok(insightsService.healthSummary(CurrentSession.sessionId()));
+    public ApiResponse<HealthSummary> healthSummary(@RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.healthSummary(CurrentSession.sessionId(), accountId));
     }
 
     @GetMapping("/subscriptions")
-    public ApiResponse<List<SubscriptionCandidate>> subscriptions() {
-        return ApiResponse.ok(insightsService.subscriptions(CurrentSession.sessionId()));
+    public ApiResponse<List<SubscriptionCandidate>> subscriptions(@RequestParam(required = false) String accountId) {
+        return ApiResponse.ok(insightsService.subscriptions(CurrentSession.sessionId(), accountId));
     }
 }
