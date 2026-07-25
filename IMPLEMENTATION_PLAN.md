@@ -25,7 +25,16 @@ independently once the blocking phases are done.
   **Known demo-data quirk:** most seeded transactions carry a hardcoded MCC (`1711`) from the
   Postman collection's seed request regardless of their random description text, so category
   breakdown (Phase 5) will skew toward `"Home Services"` for that data — not a classifier bug.
-- **Phases 5–8: not started.** Open for the team to pick up on feature branches per the
+- **Phase 5 (financial insights): done and verified live.** All 6 endpoints
+  (`spending-summary`, `category-breakdown`, `trend`, `anomalies`, `health-summary`,
+  `subscriptions`) confirmed against the real sandbox — see `API_REFERENCE.md` for the full
+  contract with real example payloads. Live results confirmed the demo-data caveats predicted
+  in advance: category breakdown was 100% `"Home Services"` (the MCC-1711 quirk), and
+  `anomalies`/`subscriptions` both returned empty (too little history per category / merchant
+  names essentially never repeat since they're randomly generated per seed transaction). None of
+  this indicates a bug — seed more varied demo transactions before a live judging walkthrough if
+  these need to visibly show something.
+- **Phases 6–8: not started.** Open for the team to pick up on feature branches per the
   dependency map below.
 
 ## Confirmed decisions (Phase 0)
@@ -205,6 +214,24 @@ Computed on the fly from transactions fetched once per request and shared across
 - `GET /api/insights/subscriptions` — recurring same-merchant/similar-amount detection.
 - **Flag early** if sandbox transaction history is too sparse for anomaly/trend detection — may
   need Phase 4's seeding endpoints to backfill demo data before the live demo.
+- **Exit criteria: MET.** All 6 endpoints implemented in `insights/InsightsService` +
+  `InsightsController`, verified live. Confirmed sparse-data behavior: `anomalies` requires
+  ≥3 transactions in a category to compute mean/stddev at all (categories with fewer are
+  skipped, not flagged); `subscriptions` requires ≥2 same-merchant transactions with similar
+  amounts (±15%) roughly 20-40 days apart — both returned empty on current seed data, as
+  expected given the caveats above.
+
+**Contracts agreed for Phase 6+ to build on:**
+- `InsightsService.spendingSummary(sessionId, YearMonth)`, `.categoryBreakdown(sessionId, YearMonth)`,
+  `.trend(sessionId, months)`, `.anomalies(sessionId)`, `.healthSummary(sessionId)`,
+  `.subscriptions(sessionId)` — these are exactly the tool-calling surface Phase 6's
+  `ChatClient` tools should wrap (per `Backend-Prompt.md` Step 6: `getSpendingSummary`,
+  `getAnomalies`, etc.) — call these methods directly, don't reimplement the logic.
+  `InsightsService` already fetches transactions once per call and shares them across whatever
+  sub-metrics that call needs, so Phase 6 tools calling multiple of these back-to-back should be
+  aware each call still re-fetches from the sandbox (no cross-call caching yet).
+- All money fields are `BigDecimal`; all category names are open-ended strings (not an enum) —
+  see the current known set in `API_REFERENCE.md`.
 
 ---
 
@@ -230,11 +257,24 @@ Uses Ollama (local) per Phase 0 decision.
 ## Phase 7 — Cross-Cutting Concerns
 Can start as soon as Phase 3/4 controllers exist; refine continuously rather than as one block.
 - `GlobalExceptionHandler` — consistent JSON error shape; map sandbox auth failures (expired/
-  invalid token) to a clean 401, never leak raw Keycloak error bodies.
-- Resilience4j timeouts + retry + circuit breaker on all sandbox HTTP calls.
-- Bean Validation on request DTOs.
-- CORS for the Vite dev server.
-- OpenAPI/Swagger UI at `/swagger-ui.html`.
+  invalid token) to a clean 401, never leak raw Keycloak error bodies. **Done** (minimal version
+  landed in Phase 3, now with logging — see below).
+- Resilience4j timeouts + retry + circuit breaker on all sandbox HTTP calls. **Done** (Phase 2).
+- Bean Validation on request DTOs. **Done** (`LoginRequest`).
+- CORS for the Vite dev server. **Done** (Phase 1).
+- OpenAPI/Swagger UI at `/swagger-ui.html`. **Done** (dependency added Phase 1, works out of the box).
+- **Request logging: done.** `common/RequestLoggingFilter` logs method/path/status/duration for
+  every request, wrapped around the whole security chain, with a per-request correlation id
+  (`MDC` key `requestId`, shown as `[reqId=...]` in the console pattern) so every log line for
+  one request — including deep in `SandboxTokenService`/`SandboxAisClient` — can be grepped
+  together. Service-level logging added to `LoginController`, `SandboxTokenService`,
+  `SandboxAisClient`, `SessionAuthFilter`, `GlobalExceptionHandler`, `DashboardService`. Session
+  ids are truncated via `common/Masking` before logging (they're bearer credentials for our own
+  API) — access/refresh tokens are never logged, not even truncated.
+- Also excluded Boot's `UserDetailsServiceAutoConfiguration` (`Application.java`) — we never use
+  Spring Security's `UserDetailsService`/`AuthenticationManager` (`SessionAuthFilter` is the sole
+  auth mechanism), so the auto-generated random password/user was dead weight and noisy at
+  startup.
 
 ---
 
