@@ -1,8 +1,7 @@
 # API Reference — Fintech Backend
 
-For the React frontend team. Covers everything implemented through **Phase 5** (auth, accounts,
-balances, transactions, dashboard, insights). The AI chat assistant (Phase 6) isn't built yet —
-this doc will be extended when it lands.
+For the React frontend team. Covers everything implemented through **Phase 6** (auth, accounts,
+balances, transactions, dashboard, insights, AI chat assistant).
 
 ## Base URL
 
@@ -393,6 +392,72 @@ Shape when non-empty: `{ merchantName, averageAmount, currency, occurrenceCount,
 
 ---
 
+## AI Assistant
+
+Runs on a local Ollama model (`qwen2.5:7b`) — no external API key involved. Every call is
+wrapped with fallback handling on the backend, so a slow/unreachable model degrades gracefully
+(a friendly message for chat, rule-based tips for coaching) rather than erroring out.
+
+### `POST /api/ai/chat`
+
+```json
+{ "message": "What is my total balance across all accounts?", "conversationId": null }
+```
+
+- `message` required.
+- `conversationId` optional — **omit it and the backend defaults to your `sessionToken`**, so a
+  logged-in user gets one continuous conversation thread without the frontend having to manage
+  an id. Pass an explicit `conversationId` only if you want multiple separate chat threads per
+  user (e.g. a "new conversation" button).
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "reply": "Your total balance across all 8 accounts is £20,796.96.",
+    "conversationId": "d9634478-ab05-488c-acbd-84a0704d13c8"
+  },
+  "error": null
+}
+```
+
+The model has live tool access to account balances, category/month-filtered transactions,
+monthly spending summaries, and anomaly data — answers are grounded in real numbers, not
+hallucinated. Send the returned `conversationId` back on the next call (or just keep omitting it)
+to continue the same conversation; the backend remembers the last 20 messages per conversation
+in memory (no persistence — lost on backend restart).
+
+If the model itself fails or times out, `reply` will be an apologetic fallback string rather
+than an HTTP error — check for that string if you want to show a "try again" affordance instead
+of rendering it as a normal assistant message. (Exact fallback text may change; treat any AI
+outage as non-fatal either way.)
+
+### `GET /api/ai/coaching-tip`
+
+No body/params. Returns 2-3 short actionable tips grounded in the user's current-month spending
+summary, total balance, savings rate, top category, and anomaly count.
+
+```json
+{
+  "success": true,
+  "data": {
+    "tips": [
+      "You're saving 100% of your income this month — consider moving some of that surplus into your Savings account.",
+      "Home Services made up all of your spending this month; keep an eye on it if that's not intentional.",
+      "No unusual transactions detected — your spending pattern looks stable."
+    ]
+  },
+  "error": null
+}
+```
+
+If the AI call fails or returns no tips, `tips` falls back to the same rule-based observation
+strings as `GET /api/insights/health-summary`'s `observations` field — always render `tips` as a
+plain list either way, no need to branch on whether it came from the model or the fallback.
+
+---
+
 ## Minimal React integration sketch
 
 ```js
@@ -427,10 +492,7 @@ const { sessionToken } = await apiFetch("/api/auth/login", {
 const dashboard = await apiFetch("/api/dashboard", { token: sessionToken });
 ```
 
----
-
-## Not yet available
-
-- **AI chat assistant** (`/api/ai/chat`, `/api/ai/coaching-tip`) — Phase 6, not started.
-
-This doc will be updated as that lands — check back before building against it.
+All core and bonus backend phases (1-6) are implemented and verified live as of this writing.
+Remaining work is cross-cutting polish and deliverables (README/architecture docs) — no new
+endpoints expected, but check `IMPLEMENTATION_PLAN.md`'s Status section if something here seems
+out of date.

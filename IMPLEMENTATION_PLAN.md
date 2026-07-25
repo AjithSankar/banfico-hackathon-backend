@@ -34,7 +34,30 @@ independently once the blocking phases are done.
   names essentially never repeat since they're randomly generated per seed transaction). None of
   this indicates a bug — seed more varied demo transactions before a live judging walkthrough if
   these need to visibly show something.
-- **Phases 6–8: not started.** Open for the team to pick up on feature branches per the
+- **Phase 6 (AI layer): done and verified live.** `POST /api/ai/chat` (tool-calling grounded in
+  `FinancialTools` → `AccountService`/`InsightsService`, in-memory conversation history per
+  `conversationId`, defaults to `sessionId` if omitted) and `GET /api/ai/coaching-tip`
+  (structured-output prompt fed by live `spendingSummary`/`anomalies`/`healthSummary`, with a
+  rule-based fallback to `healthSummary.observations()` if the model call fails or returns no
+  tips) both confirmed working against local Ollama (`qwen2.5:7b`). See `API_REFERENCE.md`.
+  **Known issue (external, not our code):** the sandbox's own token endpoint has been observed
+  intermittently rejecting/timing out during testing — `SandboxTokenService` already has
+  Resilience4j retry + circuit breaker (Phase 2) for this, but if it recurs during judging,
+  check whether it's sandbox-side flakiness before assuming a backend bug.
+- **Phase 7 (cross-cutting): done and verified live.** All items landed incrementally during
+  Phases 1-6 (see the Phase 7 section below for specifics on each). Swagger UI
+  (`/swagger-ui/index.html`) and `/v3/api-docs` confirmed reachable without auth, listing all
+  15 endpoints across every controller.
+- **Phase 8: done.** `README.md` (setup, env vars, running tests, logging notes) and
+  `ARCHITECTURE.md` (component + sequence diagrams, package structure, concurrency/resilience
+  notes, persistence rationale) written.
+
+**All 8 phases are now done and verified live.** The backend is a complete, working vertical
+slice: login → accounts/balances/transactions → dashboard → insights → AI chat/coaching, with
+CORS, logging, resilience, and docs in place. Remaining work is optional polish (e.g. seeding
+more varied demo transactions before judging so category-breakdown/anomalies/subscriptions look
+richer — see Phase 4/5 notes) and whatever the frontend team needs from the backend as they build
+against `API_REFERENCE.md`.
   dependency map below.
 
 ## Confirmed decisions (Phase 0)
@@ -251,6 +274,15 @@ Uses Ollama (local) per Phase 0 decision.
 - Fallback handling on every AI/sandbox call — a slow/flaky call must not crash the live demo.
 - **Dev setup note:** requires local Ollama running with `qwen2.5:7b` pulled
   (`ollama pull qwen2.5:7b`).
+- **Exit criteria: MET.** Both endpoints implemented (`ai/ChatClientConfig`, `ai/FinancialTools`,
+  `ai/FinancialAssistantService`, `ai/ChatController`) and verified live against local Ollama —
+  chat correctly triggered tool calls and remembered prior turns in the same `conversationId`;
+  coaching-tip returned model-generated tips grounded in real numbers.
+- **Simplification vs. the original plan:** conversation memory is not explicitly cleared on
+  session expiry — `MessageWindowChatMemory` is windowed (last 20 messages) per `conversationId`
+  already, so per-conversation growth is bounded; only the *number* of distinct conversations
+  could grow unbounded over a very long-running demo, which is a non-issue at hackathon scale.
+  Revisit only if this becomes a real long-lived deployment.
 
 ---
 
