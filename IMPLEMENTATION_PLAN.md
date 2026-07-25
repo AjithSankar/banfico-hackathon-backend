@@ -17,7 +17,15 @@ independently once the blocking phases are done.
   `POST /api/auth/logout` work end-to-end against the real sandbox; `SessionAuthFilter` 401s
   requests with a missing/invalid/invalidated session token. See "Contracts agreed" under
   Phase 3 below for how the frontend should use the returned token.
-- **Phases 4–8: not started.** Open for the team to pick up on feature branches per the
+- **Phase 4 (accounts/balances/transactions/dashboard): done and verified live.**
+  `/api/accounts`, `/api/accounts/{id}`, `/api/accounts/{id}/balance`,
+  `/api/accounts/{id}/transactions`, `/api/dashboard` all confirmed against the real sandbox —
+  8 accounts, correct balance sum in the dashboard, correct newest-first sort and filtering. See
+  `API_REFERENCE.md` for the full frontend-facing contract with example payloads.
+  **Known demo-data quirk:** most seeded transactions carry a hardcoded MCC (`1711`) from the
+  Postman collection's seed request regardless of their random description text, so category
+  breakdown (Phase 5) will skew toward `"Home Services"` for that data — not a classifier bug.
+- **Phases 5–8: not started.** Open for the team to pick up on feature branches per the
   dependency map below.
 
 ## Confirmed decisions (Phase 0)
@@ -166,8 +174,21 @@ added later without touching controllers.
   response; fan out per-account calls concurrently via virtual threads/`StructuredTaskScope`.
 - (Bonus) `POST /api/accounts`, `POST /api/accounts/{id}/transactions` — pass-through to
   sandbox create endpoints for demo-seeding.
-- **Exit criteria:** post the actual `/api/dashboard` JSON for team review before Phase 5/6
-  build on top of it.
+- **Exit criteria: MET.** Live `/api/dashboard` JSON reviewed — see `API_REFERENCE.md` for the
+  full shape with a real example. All endpoints implemented in `account/`, `transaction/`,
+  `dashboard/` packages: `AccountService`/`AccountController`, `TransactionCategoryClassifier`/
+  `TransactionService`/`TransactionController`, `DashboardService`/`DashboardController`.
+  Per-account balance and transaction fetches fan out concurrently via
+  `common/Concurrency.mapConcurrently` (virtual threads).
+
+**Contracts agreed for Phase 5+ to build on:**
+- `AccountService.listAccounts(sessionId): List<AccountSummary>` — balances already resolved
+- `TransactionService.listTransactions(sessionId, accountId, category, from, to): List<TransactionSummary>`
+  — full history for one account, already classified/sorted; Phase 5 will need to call this
+  per-account (fan out via `Concurrency.mapConcurrently` again) and aggregate across accounts
+- `TransactionCategoryClassifier.classify(ObieTransaction): String` — reusable if Phase 5 needs
+  to classify at a different layer
+- `common/PagedResult<T>` and `common/Concurrency` are generic — reuse them, don't reinvent
 
 ---
 

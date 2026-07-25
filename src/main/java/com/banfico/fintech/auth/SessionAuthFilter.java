@@ -7,6 +7,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,6 +27,7 @@ import java.util.Set;
  * /api/auth/login, resolving it to the cached sandbox token bundle via SandboxTokenService.
  * Swagger/actuator paths aren't under /api/** so they're untouched by this filter.
  */
+@Slf4j
 @Component
 public class SessionAuthFilter extends OncePerRequestFilter {
 
@@ -51,14 +53,14 @@ public class SessionAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header == null || !header.startsWith(BEARER_PREFIX)) {
-            unauthorized(response, "Missing bearer session token");
+            unauthorized(request, response, "Missing bearer session token");
             return;
         }
         String sessionId = header.substring(BEARER_PREFIX.length()).trim();
         try {
             tokenService.getAccessToken(sessionId);
         } catch (SandboxAuthException ex) {
-            unauthorized(response, ex.getMessage());
+            unauthorized(request, response, ex.getMessage());
             return;
         }
         Authentication authentication = new UsernamePasswordAuthenticationToken(
@@ -67,7 +69,8 @@ public class SessionAuthFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private void unauthorized(HttpServletResponse response, String message) throws IOException {
+    private void unauthorized(HttpServletRequest request, HttpServletResponse response, String message) throws IOException {
+        log.warn("Unauthorized request method={} path={} reason={}", request.getMethod(), request.getRequestURI(), message);
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getWriter(), ApiResponse.error(message));

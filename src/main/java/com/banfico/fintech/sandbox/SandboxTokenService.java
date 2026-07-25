@@ -1,5 +1,6 @@
 package com.banfico.fintech.sandbox;
 
+import com.banfico.fintech.common.Masking;
 import com.banfico.fintech.common.exception.SandboxAuthException;
 import com.banfico.fintech.config.SandboxProperties;
 import com.banfico.fintech.sandbox.dto.TokenResponse;
@@ -7,6 +8,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -21,8 +23,10 @@ import java.util.function.Supplier;
 /**
  * Exchanges end-user sandbox credentials for a Keycloak token bundle and caches it in-memory
  * keyed by our own session id. The raw access/refresh tokens never leave this service — callers
- * only ever get a valid access token to inject into a SandboxAisClient call.
+ * only ever get a valid access token to inject into a SandboxAisClient call. Never logged, even
+ * truncated — only the session id (itself a bearer credential for our API) is logged, truncated.
  */
+@Slf4j
 @Service
 public class SandboxTokenService {
 
@@ -43,8 +47,10 @@ public class SandboxTokenService {
     }
 
     public TokenBundle login(String sessionId, String username, String password) {
+        log.debug("Exchanging sandbox password grant sessionId={}", Masking.truncate(sessionId));
         TokenBundle bundle = toBundle(exchangeToken(passwordGrantForm(username, password)));
         sessions.put(sessionId, bundle);
+        log.info("Sandbox session established sessionId={}", Masking.truncate(sessionId));
         return bundle;
     }
 
@@ -52,6 +58,7 @@ public class SandboxTokenService {
     public String getAccessToken(String sessionId) {
         TokenBundle bundle = sessions.get(sessionId);
         if (bundle == null) {
+            log.warn("No active sandbox session sessionId={}", Masking.truncate(sessionId));
             throw new SandboxAuthException("No active sandbox session for id: " + sessionId);
         }
         if (bundle.isAccessTokenExpiringSoon()) {
@@ -63,18 +70,22 @@ public class SandboxTokenService {
     public TokenBundle refresh(String sessionId) {
         TokenBundle existing = sessions.get(sessionId);
         if (existing == null) {
+            log.warn("Refresh requested for unknown sessionId={}", Masking.truncate(sessionId));
             throw new SandboxAuthException("No active sandbox session for id: " + sessionId);
         }
         if (existing.isRefreshTokenExpired()) {
             sessions.remove(sessionId);
+            log.info("Sandbox refresh token expired, session dropped sessionId={}", Masking.truncate(sessionId));
             throw new SandboxAuthException("Sandbox session expired, please log in again: " + sessionId);
         }
+        log.debug("Refreshing sandbox access token sessionId={}", Masking.truncate(sessionId));
         TokenBundle bundle = toBundle(exchangeToken(refreshGrantForm(existing.refreshToken())));
         sessions.put(sessionId, bundle);
         return bundle;
     }
 
     public void invalidate(String sessionId) {
+        log.info("Sandbox session invalidated sessionId={}", Masking.truncate(sessionId));
         sessions.remove(sessionId);
     }
 
@@ -85,6 +96,7 @@ public class SandboxTokenService {
                 .body(form)
                 .retrieve()
                 .onStatus(status -> status.value() == 400 || status.value() == 401, (req, res) -> {
+                    log.warn("Sandbox rejected token request status={}", res.getStatusCode());
                     throw new SandboxAuthException("Sandbox rejected the token request (status " + res.getStatusCode() + ")");
                 })
                 .body(TokenResponse.class);

@@ -18,6 +18,13 @@ logging:
     org:
       springframework:
         ai: DEBUG
+    com:
+      banfico:
+        fintech: DEBUG
+  pattern:
+    # Appends the per-request correlation id (see RequestLoggingFilter) after the log level,
+    # on top of Boot's default console pattern.
+    level: "%5p [reqId=%X{requestId:-}]"
 
 # Hackathon Mock Bank sandbox (Open Banking / OBIE AISP v4.0). Client id/secret are backend
 # config; end-user username/password are submitted by the frontend on /api/auth/login.
