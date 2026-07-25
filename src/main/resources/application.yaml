@@ -18,3 +18,43 @@ logging:
     org:
       springframework:
         ai: DEBUG
+
+# Hackathon Mock Bank sandbox (Open Banking / OBIE AISP v4.0). Client id/secret are backend
+# config; end-user username/password are submitted by the frontend on /api/auth/login.
+sandbox:
+  domain: ${SANDBOX_DOMAIN:obiebank-sbx.banfico.io}
+  tenant: ${SANDBOX_TENANT:provider}
+  client-id: ${SANDBOX_CLIENT_ID:corebank-spa}
+  client-secret: ${SANDBOX_CLIENT_SECRET:corebank-spa-password}
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+resilience4j:
+  retry:
+    instances:
+      sandboxToken:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+      sandboxAis:
+        max-attempts: 3
+        wait-duration: 300ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+  circuitbreaker:
+    instances:
+      sandboxToken:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+      sandboxAis:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
