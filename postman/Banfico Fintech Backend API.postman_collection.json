@@ -1,0 +1,496 @@
+{
+  "info": {
+    "_postman_id": "b4c6208f-96e3-47e7-a6e5-7b17beceba42",
+    "name": "Banfico Fintech Backend API",
+    "description": "Collection for the banfico-hackathon-backend service (our own API, not the raw sandbox OBIE endpoints). Run 'Login' first \u2014 it stores the session token in the `sessionToken` collection variable, which every other request sends as `Authorization: Bearer {{sessionToken}}`. Run 'List Accounts' next to auto-populate `accountId`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{sessionToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:9091",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sessionToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "accountId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Authenticates with the sandbox bank credentials and returns our own opaque session token. On success, the test script saves `sessionToken` into the collection variable used by every other request's Bearer auth.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login succeeded', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "if (body.success && body.data && body.data.sessionToken) {",
+                  "    pm.collectionVariables.set('sessionToken', body.data.sessionToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Invalidates the current session token."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "item": [
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "description": "Lists all accounts for the current session. The test script saves the first account's id into `accountId` for use by other requests."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('List accounts succeeded', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "if (body.success && Array.isArray(body.data) && body.data.length > 0) {",
+                  "    pm.collectionVariables.set('accountId', body.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Account By Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{accountId}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{accountId}}"
+              ]
+            },
+            "description": "Fetches detail for a single account."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Balance By Account Id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{accountId}}/balance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{accountId}}",
+                "balance"
+              ]
+            },
+            "description": "Fetches the current balance for a single account."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Account (Demo Seeding)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/accounts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "description": "Demo-seeding only (bonus) \u2014 not a core end-user-facing feature. Creates an account directly in the sandbox in OBIE shape.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"Nickname\": \"{{$randomWord}} Account\",\n    \"StatusUpdateDateTime\": \"{{$isoTimestamp}}\",\n    \"OpeningDate\": \"{{$isoTimestamp}}\",\n    \"Status\": \"Enabled\",\n    \"AccountCategory\": \"Personal\",\n    \"AccountTypeCode\": \"CACC\",\n    \"Balance\": \"1900.28\",\n    \"Currency\": \"GBP\",\n    \"Account\": [\n        {\n            \"SchemeName\": \"UK.OBIE.SortCodeAccountNumber\",\n            \"Identification\": \"36478885080576\",\n            \"Name\": \"{{$randomFullName}}\",\n            \"SecondaryIdentification\": \"62361\"\n        }\n    ],\n    \"Servicer\": {\n        \"SchemeName\": \"UK.OBIE.BICFI\",\n        \"Identification\": \"SC802001\",\n        \"Name\": \"ServicerNameSample\"\n    },\n    \"StatementFrequencyAndFormat\": [\n        {\n            \"CommunicationMethod\": \"EMAL\",\n            \"Format\": \"DPDF\",\n            \"Frequency\": \"DAIL\"\n        }\n    ],\n    \"InternationalAccount\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "List Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{accountId}}/transactions?category=&from=&to=&page=0&size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{accountId}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": ""
+                },
+                {
+                  "key": "from",
+                  "value": ""
+                },
+                {
+                  "key": "to",
+                  "value": ""
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Lists paginated transactions for an account, optionally filtered by category and date range."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Transaction (Demo Seeding)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/accounts/{{accountId}}/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{accountId}}",
+                "transactions"
+              ]
+            },
+            "description": "Demo-seeding only (bonus) \u2014 not a core end-user-facing feature. Creates a transaction directly in the sandbox in OBIE shape.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"TransactionReference\": \"{{$randomUUID}}\",\n    \"Amount\": {\n        \"Amount\": \"25.50\",\n        \"Currency\": \"GBP\"\n    },\n    \"CreditDebitIndicator\": \"Credit\",\n    \"Status\": \"Booked\",\n    \"BookingDateTime\": \"{{$isoTimestamp}}\",\n    \"ValueDateTime\": \"{{$isoTimestamp}}\",\n    \"TransactionInformation\": \"{{$randomLoremWords}}\",\n    \"BankTransactionCode\": {\n        \"Code\": \"IssuedCreditTransfer\",\n        \"SubCode\": \"AutomaticTransfer\"\n    },\n    \"ProprietaryBankTransactionCode\": {\n        \"Code\": \"Transfer\",\n        \"Issuer\": \"CoreBank\"\n    },\n    \"ExtendedProprietaryBankTransactionCodes\": [\n        {\n            \"Code\": \"{{$randomWord}}\"\n        }\n    ],\n    \"Balance\": {\n        \"Amount\": {\n            \"Amount\": \"1925.78\",\n            \"Currency\": \"GBP\"\n        },\n        \"CreditDebitIndicator\": \"Credit\",\n        \"Type\": \"ITBD\"\n    },\n    \"PaymentPurposeCode\": \"CASH\",\n    \"MerchantDetails\": {\n        \"MerchantName\": \"{{$randomCompanyName}}\",\n        \"MerchantCategoryCode\": \"1711\"\n    },\n    \"CreditorAgent\": {\n        \"SchemeName\": \"UK.OBIE.BICFI\",\n        \"Identification\": \"SC802001\",\n        \"PostalAddress\": {\n            \"AddressLine\": \"{{$randomStreetAddress}}, {{$randomCity}}, England, {{$randomZipCode}}\"\n        }\n    },\n    \"CreditorAccount\": {\n        \"SchemeName\": \"UK.OBIE.SortCodeAccountNumber\"\n    },\n    \"DebtorAgent\": {\n        \"SchemeName\": \"UK.OBIE.BICFI\",\n        \"Identification\": \"SC802002\",\n        \"PostalAddress\": {\n            \"AddressLine\": \"{{$randomStreetAddress}}, {{$randomCity}}, England, {{$randomZipCode}}\"\n        }\n    },\n    \"DebtorAccount\": {\n        \"SchemeName\": \"UK.OBIE.SortCodeAccountNumber\"\n    },\n    \"UltimateCreditor\": {\n        \"SchemeName\": \"UK.OBIE.SortCodeAccountNumber\",\n        \"PostalAddress\": {\n            \"AddressLine\": \"{{$randomStreetAddress}}, {{$randomCity}}, England, {{$randomZipCode}}\"\n        }\n    },\n    \"UltimateDebtor\": {\n        \"SchemeName\": \"UK.OBIE.SortCodeAccountNumber\",\n        \"PostalAddress\": {\n            \"AddressLine\": \"{{$randomStreetAddress}}, {{$randomCity}}, England, {{$randomZipCode}}\"\n        }\n    },\n    \"CardInstrument\": {\n        \"CardSchemeName\": \"MasterCard\",\n        \"AuthorisationType\": \"PIN\"\n    }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "dashboard"
+              ]
+            },
+            "description": "Aggregated home-screen shape: accounts, account count, total balance, and recent transactions across accounts."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Insights",
+      "item": [
+        {
+          "name": "Spending Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/spending-summary?month=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "insights",
+                "spending-summary"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "",
+                  "description": "Optional, format yyyy-MM. Defaults to the current month."
+                }
+              ]
+            },
+            "description": "Income vs. expense totals for one calendar month, across all accounts."
+          },
+          "response": []
+        },
+        {
+          "name": "Category Breakdown",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/category-breakdown?month=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "insights",
+                "category-breakdown"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "",
+                  "description": "Optional, format yyyy-MM. Defaults to the current month."
+                }
+              ]
+            },
+            "description": "Spend broken down by category for one calendar month, across all accounts."
+          },
+          "response": []
+        },
+        {
+          "name": "Trend",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/trend?months=6",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "insights",
+                "trend"
+              ],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "6",
+                  "description": "Number of trailing months to include, oldest first."
+                }
+              ]
+            },
+            "description": "Monthly income/expense trend over the requested window, zero-filled for months with no transactions."
+          },
+          "response": []
+        },
+        {
+          "name": "Anomalies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/anomalies",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "insights",
+                "anomalies"
+              ]
+            },
+            "description": "Transactions flagged as outliers vs. their own category's mean + 2x standard deviation."
+          },
+          "response": []
+        },
+        {
+          "name": "Health Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/health-summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "insights",
+                "health-summary"
+              ]
+            },
+            "description": "Rule-based financial health snapshot: balances, current month income/expense, net change, savings rate, top category, and observations."
+          },
+          "response": []
+        },
+        {
+          "name": "Subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/subscriptions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "insights",
+                "subscriptions"
+              ]
+            },
+            "description": "Merchants with recurring, similarly-sized, roughly-monthly transactions, detected as likely subscriptions."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
