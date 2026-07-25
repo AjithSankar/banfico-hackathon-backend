@@ -4,8 +4,6 @@ import com.banfico.fintech.common.Masking;
 import com.banfico.fintech.common.exception.SandboxAuthException;
 import com.banfico.fintech.config.SandboxProperties;
 import com.banfico.fintech.sandbox.dto.TokenResponse;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -33,17 +31,14 @@ public class SandboxTokenService {
     private final RestClient sandboxAuthRestClient;
     private final SandboxProperties properties;
     private final Retry tokenRetry;
-    private final CircuitBreaker tokenCircuitBreaker;
     private final ConcurrentHashMap<String, TokenBundle> sessions = new ConcurrentHashMap<>();
 
     public SandboxTokenService(@Qualifier("sandboxAuthRestClient") RestClient sandboxAuthRestClient,
                                 SandboxProperties properties,
-                                RetryRegistry retryRegistry,
-                                CircuitBreakerRegistry circuitBreakerRegistry) {
+                                RetryRegistry retryRegistry) {
         this.sandboxAuthRestClient = sandboxAuthRestClient;
         this.properties = properties;
         this.tokenRetry = retryRegistry.retry("sandboxToken");
-        this.tokenCircuitBreaker = circuitBreakerRegistry.circuitBreaker("sandboxToken");
     }
 
     public TokenBundle login(String sessionId, String username, String password) {
@@ -101,10 +96,11 @@ public class SandboxTokenService {
                 })
                 .body(TokenResponse.class);
         // Resilience4j applied programmatically (not via annotation) since this is a private,
-        // self-invoked method — an @Retry/@CircuitBreaker annotation here would be silently
-        // skipped by Spring AOP.
-        Supplier<TokenResponse> decorated = CircuitBreaker.decorateSupplier(tokenCircuitBreaker,
-                Retry.decorateSupplier(tokenRetry, call));
+        // self-invoked method — an @Retry annotation here would be silently skipped by Spring AOP.
+        // No circuit breaker: at hackathon-demo call volumes, a breaker only adds a self-inflicted
+        // outage window after a transient blip trips it (see IMPLEMENTATION_PLAN.md) — retry alone
+        // is the right amount of resilience here.
+        Supplier<TokenResponse> decorated = Retry.decorateSupplier(tokenRetry, call);
         return decorated.get();
     }
 

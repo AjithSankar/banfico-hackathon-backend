@@ -38,6 +38,8 @@ app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+# No circuit breaker instances — see IMPLEMENTATION_PLAN.md for why it was removed (added a
+# self-inflicted outage window with no real benefit at hackathon-demo call volumes). Retry alone.
 resilience4j:
   retry:
     instances:
@@ -53,15 +55,3 @@ resilience4j:
         retry-exceptions:
           - org.springframework.web.client.ResourceAccessException
           - org.springframework.web.client.HttpServerErrorException
-  circuitbreaker:
-    instances:
-      sandboxToken:
-        sliding-window-size: 10
-        failure-rate-threshold: 50
-        wait-duration-in-open-state: 10s
-        permitted-number-of-calls-in-half-open-state: 3
-      sandboxAis:
-        sliding-window-size: 10
-        failure-rate-threshold: 50
-        wait-duration-in-open-state: 10s
-        permitted-number-of-calls-in-half-open-state: 3

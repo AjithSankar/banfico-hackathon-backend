@@ -405,6 +405,38 @@ roughly-monthly (20-40 day interval) transactions. Empty today (see the demo-dat
 
 Shape when non-empty: `{ merchantName, averageAmount, currency, occurrenceCount, estimatedFrequencyDays, lastBookingDateTime }`.
 
+### `GET /api/insights/overspending-alerts?month=YYYY-MM&accountId=`
+
+`month` optional, defaults to current month (compared against the month before it). `accountId`
+optional (see note above). Flags categories where spend jumped vs. the previous month, or
+brand-new spending categories — a month-over-month lens on "am I overspending," complementing
+`anomalies` (which flags per-transaction outliers vs. a category's own historical average).
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "category": "Home Services",
+      "currentMonthAmount": 320.85,
+      "previousMonthAmount": 0,
+      "percentageIncrease": null,
+      "severity": "medium"
+    }
+  ],
+  "error": null
+}
+```
+
+- `percentageIncrease` is `null` when `previousMonthAmount` was `0` — that means it's a **brand
+  new** spending category this month, not a percentage change (there's nothing to divide by).
+- `severity` is `"high"` (>=50% increase) or `"medium"` (>=20% increase, or a new category).
+  Categories with a smaller increase (or a decrease) aren't included in the list at all.
+- Given the current sandbox seed data typically only has real activity in the most recent
+  month, most categories will show up as `"new spending category"` (null `percentageIncrease`)
+  rather than a real percentage comparison — see `CHAT_ASSISTANT_PROMPTS.md` for how this plays
+  into a demo.
+
 ---
 
 ## AI Assistant
@@ -437,12 +469,15 @@ Response:
 }
 ```
 
-The model has live tool access to account balances, category/month-filtered transactions,
-monthly spending summaries, anomaly data, and personalized recommendations (the same
-rule-based data `GET /api/ai/recommendations` falls back to) — answers are grounded in real
-numbers, not hallucinated. Send the returned `conversationId` back on the next call (or just
-keep omitting it) to continue the same conversation; the backend remembers the last 20 messages
-per conversation in memory (no persistence — lost on backend restart).
+The model has live tool access to: account balances, category/month-filtered transactions,
+monthly spending summaries, category breakdown, multi-month spending trend, anomaly detection,
+overspending alerts, subscription/recurring-charge detection, an overall health summary, and
+personalized recommendations (the same rule-based data `GET /api/ai/recommendations` falls back
+to) — answers are grounded in real numbers, not hallucinated. See `CHAT_ASSISTANT_PROMPTS.md`
+for a full categorized list of example prompts and which tool each one triggers. Send the
+returned `conversationId` back on the next call (or just keep omitting it) to continue the same
+conversation; the backend remembers the last 20 messages per conversation in memory (no
+persistence — lost on backend restart).
 
 If the model itself fails or times out, `reply` will be an apologetic fallback string rather
 than an HTTP error — check for that string if you want to show a "try again" affordance instead

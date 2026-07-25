@@ -7,8 +7,6 @@ import com.banfico.fintech.sandbox.dto.ObieAccountsResponse;
 import com.banfico.fintech.sandbox.dto.ObieBalancesResponse;
 import com.banfico.fintech.sandbox.dto.ObieTransactionCreateRequest;
 import com.banfico.fintech.sandbox.dto.ObieTransactionsResponse;
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -34,16 +32,13 @@ public class SandboxAisClient {
     private final RestClient sandboxAisRestClient;
     private final SandboxTokenService tokenService;
     private final Retry aisRetry;
-    private final CircuitBreaker aisCircuitBreaker;
 
     public SandboxAisClient(@Qualifier("sandboxAisRestClient") RestClient sandboxAisRestClient,
                              SandboxTokenService tokenService,
-                             RetryRegistry retryRegistry,
-                             CircuitBreakerRegistry circuitBreakerRegistry) {
+                             RetryRegistry retryRegistry) {
         this.sandboxAisRestClient = sandboxAisRestClient;
         this.tokenService = tokenService;
         this.aisRetry = retryRegistry.retry("sandboxAis");
-        this.aisCircuitBreaker = circuitBreakerRegistry.circuitBreaker("sandboxAis");
     }
 
     public ObieAccountsResponse getAccounts(String sessionId) {
@@ -125,7 +120,10 @@ public class SandboxAisClient {
     }
 
     private <T> T withResilience(Supplier<T> call) {
-        Supplier<T> decorated = CircuitBreaker.decorateSupplier(aisCircuitBreaker, Retry.decorateSupplier(aisRetry, call));
+        // No circuit breaker: at hackathon-demo call volumes it only adds a self-inflicted outage
+        // window after a transient blip trips it open (see IMPLEMENTATION_PLAN.md) — retry alone
+        // is the right amount of resilience here.
+        Supplier<T> decorated = Retry.decorateSupplier(aisRetry, call);
         return decorated.get();
     }
 

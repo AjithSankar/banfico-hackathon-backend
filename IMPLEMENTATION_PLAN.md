@@ -51,9 +51,11 @@ independently once the blocking phases are done.
   `GET /api/ai/recommendations` (Personalized AI Recommendations — see below) all confirmed
   working against local Ollama (`qwen2.5:7b`). See `API_REFERENCE.md`.
   **Known issue (external, not our code):** the sandbox's own token endpoint has been observed
-  intermittently rejecting/timing out during testing — `SandboxTokenService` already has
-  Resilience4j retry + circuit breaker (Phase 2) for this, but if it recurs during judging,
-  check whether it's sandbox-side flakiness before assuming a backend bug.
+  intermittently rejecting/timing out during testing — `SandboxTokenService` has Resilience4j
+  retry (Phase 2) for this; if it recurs during judging, check whether it's sandbox-side
+  flakiness before assuming a backend bug. (The circuit breaker that used to sit alongside the
+  retry was removed post-Phase-6 — see below — because it turned exactly this kind of transient
+  sandbox flakiness into a guaranteed self-inflicted outage.)
 - **Post-Phase-6 addition: Personalized AI Recommendations.** `GET /api/ai/recommendations`
   (`FinancialAssistantService.recommendations`) generates 3-5 structured recommendations
   (`title`, `description`, `category`, `priority`) grounded in a **6-month income/expense
@@ -76,6 +78,29 @@ independently once the blocking phases are done.
   entirely and adding it only per-call inside `chat()`, where a `conversationId` genuinely
   exists. Re-verified live afterward: both `coaching-tip` and `recommendations` now return
   genuine model-generated text referencing real numbers, not the fallback template.
+- **Post-Phase-6 addition: expanded chat tools + overspending alerts.** `FinancialTools` grew
+  from 5 to 10 `@Tool` methods — added `getCategoryBreakdown`, `getSpendingTrend`,
+  `getSubscriptions`, `getOverspendingAlerts`, `getHealthSummary` — so `/api/ai/chat` can answer
+  a much broader range of spending/overspending/financial-health questions, not just balances,
+  category-filtered transactions, one-month summaries, and anomalies. `getOverspendingAlerts`
+  backs a brand-new insight, `InsightsService.overspendingAlerts(sessionId, month[, accountId])`
+  (`insights/OverspendingAlert`, exposed as `GET /api/insights/overspending-alerts`) — compares
+  each category's spend this month vs. the prior month, flagging >=20%/>=50% increases and
+  brand-new spending categories. Complements `anomalies` (per-transaction outliers vs. a
+  category's own historical mean) with a month-over-month trajectory view — the more direct
+  signal for "am I overspending" questions. See `CHAT_ASSISTANT_PROMPTS.md` for a full demo
+  script covering every tool.
+- **Post-Phase-6 fix: circuit breaker removed.** A real incident: the sandbox token endpoint had
+  a run of intermittent failures during team testing, which tripped the Resilience4j circuit
+  breaker on `sandboxToken` open — and once open, it immediately threw
+  `CallNotPermittedException` for every subsequent call for the configured 10s window, even after
+  the sandbox recovered, surfacing as a generic 500 via `GlobalExceptionHandler`. Concluded a
+  circuit breaker isn't the right fit at this project's scale (hackathon-demo call volumes, not
+  sustained high-throughput traffic) — its benefit (stop hammering a dying downstream service)
+  doesn't apply, but its downside (a guaranteed self-inflicted outage window after any transient
+  blip) does. Removed entirely from `SandboxTokenService`/`SandboxAisClient` and
+  `application.yaml`; kept Resilience4j **retry**, which has no such downside. See
+  `ARCHITECTURE.md`'s Resilience section.
 - **Phase 7 (cross-cutting): done and verified live.** All items landed incrementally during
   Phases 1-6 (see the Phase 7 section below for specifics on each). Swagger UI
   (`/swagger-ui/index.html`) and `/v3/api-docs` confirmed reachable without auth, listing all
@@ -84,13 +109,14 @@ independently once the blocking phases are done.
   `ARCHITECTURE.md` (component + sequence diagrams, package structure, concurrency/resilience
   notes, persistence rationale) written.
 
-**All 8 phases are now done and verified live.** The backend is a complete, working vertical
-slice: login → accounts/balances/transactions → dashboard → insights → AI chat/coaching, with
-CORS, logging, resilience, and docs in place. Remaining work is optional polish (e.g. seeding
-more varied demo transactions before judging so category-breakdown/anomalies/subscriptions look
-richer — see Phase 4/5 notes) and whatever the frontend team needs from the backend as they build
-against `API_REFERENCE.md`.
-  dependency map below.
+**All 8 phases are now done and verified live**, with several post-launch additions on top
+(per-account insights scoping, Personalized AI Recommendations, 5 more chat tools, an
+overspending-alerts insight, and a circuit-breaker removal). The backend is a complete, working
+vertical slice: login → accounts/balances/transactions → dashboard → insights → AI chat/coaching/
+recommendations, with CORS, logging, resilience, and docs in place. Remaining work is optional
+polish (e.g. seeding more varied demo transactions before judging so category-breakdown/
+anomalies/subscriptions look richer — see Phase 4/5 notes) and whatever the frontend team needs
+from the backend as they build against `API_REFERENCE.md`.
 
 ## Confirmed decisions (Phase 0)
 - **AI provider**: Ollama, local (`spring-ai-starter-model-ollama`, already in `pom.xml`).
@@ -336,7 +362,8 @@ Can start as soon as Phase 3/4 controllers exist; refine continuously rather tha
 - `GlobalExceptionHandler` — consistent JSON error shape; map sandbox auth failures (expired/
   invalid token) to a clean 401, never leak raw Keycloak error bodies. **Done** (minimal version
   landed in Phase 3, now with logging — see below).
-- Resilience4j timeouts + retry + circuit breaker on all sandbox HTTP calls. **Done** (Phase 2).
+- Resilience4j timeouts + retry on all sandbox HTTP calls. **Done** (Phase 2).
+  **Circuit breaker removed post-Phase-6** — see the incident note below.
 - Bean Validation on request DTOs. **Done** (`LoginRequest`).
 - CORS for the Vite dev server. **Done, fixed properly after a real bug.** The original
   Phase 1 version registered CORS via a plain `WebMvcConfigurer`, which runs too late —
